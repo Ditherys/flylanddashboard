@@ -2693,12 +2693,16 @@ tbody td:first-child {
 
 @media (max-width: 520px) {
   .mobile-home-status {
-    grid-template-columns: 1fr;
-    gap: 0.36rem;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.28rem;
   }
 
   .mobile-home-status-pill {
-    padding: 0.52rem 0.62rem;
+    padding: 0.5rem 0.48rem;
+  }
+
+  .mobile-home-status-pill strong {
+    font-size: 0.66rem;
   }
 
   .distribution-mobile-nav {
