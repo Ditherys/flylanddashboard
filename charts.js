@@ -144,7 +144,55 @@ const strictChartAreaTooltipPlugin = {
   },
 };
 
-Chart.register(valueLabelPlugin, strictChartAreaTooltipPlugin);
+const exactTouchTooltipPlugin = {
+  id: "exactTouchTooltipPlugin",
+  beforeEvent(chart, args, pluginOptions) {
+    if (!pluginOptions?.enabled) return;
+
+    const event = args.event;
+    if (!event || !["click", "touchstart", "touchmove", "mousemove"].includes(event.type)) return;
+
+    const matches = [];
+    const isHorizontal = chart.options.indexAxis === "y";
+    chart.getSortedVisibleDatasetMetas().forEach((meta) => {
+      meta.data.forEach((element, index) => {
+        const props = element.getProps(["x", "y", "base", "width", "height"], true);
+        const left = isHorizontal
+          ? Math.min(props.x, props.base) - 6
+          : props.x - props.width / 2 - 6;
+        const right = isHorizontal
+          ? Math.max(props.x, props.base) + 6
+          : props.x + props.width / 2 + 6;
+        const top = isHorizontal
+          ? props.y - props.height / 2 - 6
+          : Math.min(props.y, props.base) - 8;
+        const bottom = isHorizontal
+          ? props.y + props.height / 2 + 6
+          : Math.max(props.y, props.base) + 8;
+
+        if (event.x >= left && event.x <= right && event.y >= top && event.y <= bottom) {
+          matches.push({
+            datasetIndex: meta.index,
+            index,
+          });
+        }
+      });
+    });
+
+    if (!matches.length) return;
+
+    const [match] = matches;
+    const element = chart.getDatasetMeta(match.datasetIndex)?.data?.[match.index];
+    if (!element) return;
+
+    const position = element.tooltipPosition();
+    chart.setActiveElements([match]);
+    chart.tooltip?.setActiveElements([match], position);
+    args.changed = true;
+  },
+};
+
+Chart.register(valueLabelPlugin, strictChartAreaTooltipPlugin, exactTouchTooltipPlugin);
 
 function destroyIfExists(chart) {
   if (chart?.canvas?.dataset?.externalTooltipId) {
@@ -645,9 +693,20 @@ export function renderVarianceChart(canvas, chart, weeklyAverages) {
     options: {
       responsive: true,
       maintainAspectRatio: false,
+      interaction: {
+        mode: "nearest",
+        axis: "x",
+        intersect: false,
+      },
       plugins: {
         legend: {
           display: false,
+        },
+        strictChartAreaTooltipPlugin: {
+          enabled: true,
+        },
+        exactTouchTooltipPlugin: {
+          enabled: isMobile,
         },
         valueLabelPlugin: {
           enabled: true,
@@ -875,12 +934,18 @@ export function renderStackedBarChart(canvas, chart, records) {
       ...buildBaseOptions(),
       indexAxis: isMobile ? "y" : "x",
       interaction: {
-        mode: isMobile ? "nearest" : "index",
-        axis: isMobile ? "y" : undefined,
-        intersect: false,
+        mode: "nearest",
+        axis: isMobile ? "y" : "xy",
+        intersect: true,
       },
       plugins: {
         ...buildBaseOptions().plugins,
+        strictChartAreaTooltipPlugin: {
+          enabled: true,
+        },
+        exactTouchTooltipPlugin: {
+          enabled: isMobile,
+        },
         tooltip: {
           ...buildBaseOptions().plugins.tooltip,
           callbacks: {
@@ -910,6 +975,7 @@ export function renderStackedBarChart(canvas, chart, records) {
         x: {
           stacked: true,
           beginAtZero: true,
+          offset: true,
           grid: { display: false },
           ticks: {
             font: {
@@ -932,6 +998,11 @@ export function renderStackedBarChart(canvas, chart, records) {
             },
           },
         },
+      },
+      layout: {
+        padding: isMobile
+          ? { left: 4, right: 10, top: 0, bottom: 0 }
+          : { left: 8, right: 24, top: 0, bottom: 0 },
       },
     },
   });
