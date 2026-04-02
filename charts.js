@@ -21,8 +21,31 @@ const KPI_TOOLTIP_MAP = [
   ["Admits", "admitsScore", "admitsCount"],
   ["AHT", "ahtScore", "ahtDisplay"],
   ["Attendance", "attendanceScore", "attendancePercentDisplay"],
-  ["QA", "qaScore", "qaPercentDisplay"],
+  ["Quality Assurance", "qaScore", "qaPercentDisplay"],
 ];
+
+const FOCUS_METRICS = {
+  all: [
+    { label: "Transfer", scoreKey: "transferScore", rawType: "transferRatePercent", color: CHART_COLORS.transfer },
+    { label: "Admits", scoreKey: "admitsScore", rawType: "admitsCount", color: CHART_COLORS.admits },
+    { label: "AHT", scoreKey: "ahtScore", rawType: "ahtSeconds", color: CHART_COLORS.aht },
+    { label: "Attendance", scoreKey: "attendanceScore", rawType: "attendancePercentValue", color: CHART_COLORS.attendance },
+    { label: "Quality Assurance", scoreKey: "qaScore", rawType: "qaPercentValue", color: CHART_COLORS.qa },
+    { label: "Overall", scoreKey: "overallScore", rawType: "overallScore", color: CHART_COLORS.overall },
+  ],
+  performance: [
+    { label: "Transfer", scoreKey: "transferScore", rawType: "transferRatePercent", color: CHART_COLORS.transfer },
+    { label: "Admits", scoreKey: "admitsScore", rawType: "admitsCount", color: CHART_COLORS.admits },
+    { label: "AHT", scoreKey: "ahtScore", rawType: "ahtSeconds", color: CHART_COLORS.aht },
+    { label: "Performance", scoreKey: "performanceScore", rawType: "performanceScore", color: CHART_COLORS.overall },
+  ],
+  attendance: [
+    { label: "Attendance", scoreKey: "attendanceScore", rawType: "attendancePercentValue", color: CHART_COLORS.attendance },
+  ],
+  qa: [
+    { label: "Quality Assurance", scoreKey: "qaScore", rawType: "qaPercentValue", color: CHART_COLORS.qa },
+  ],
+};
 
 const valueLabelPlugin = {
   id: "valueLabelPlugin",
@@ -482,10 +505,18 @@ function getMobileKpiLabel(label) {
     Admits: "AD",
     AHT: "AHT",
     Attendance: "ATT",
+    "Quality Assurance": "QA",
     QA: "QA",
     Overall: "OVR",
   };
   return isMobileViewport() ? (labelMap[label] || label) : label;
+}
+
+function getChartDisplayName(agentName) {
+  if (!agentName) return "";
+  const parts = String(agentName).split(",");
+  if (parts.length < 2) return String(agentName).trim();
+  return parts.slice(1).join(",").trim() || String(agentName).trim();
 }
 
 function formatSnapshotLabel(label, weekSummary) {
@@ -494,8 +525,10 @@ function formatSnapshotLabel(label, weekSummary) {
     Admits: weekSummary.admitsCount === null || weekSummary.admitsCount === undefined ? "N/A" : Number(weekSummary.admitsCount).toFixed(2),
     AHT: formatTime(weekSummary.ahtSeconds),
     Attendance: formatPercent(weekSummary.attendancePercentValue),
+    "Quality Assurance": formatPercent(weekSummary.qaPercentValue),
     QA: formatPercent(weekSummary.qaPercentValue),
     Overall: weekSummary.overallScore === null || weekSummary.overallScore === undefined ? "N/A" : Number(weekSummary.overallScore).toFixed(2),
+    Performance: weekSummary.performanceScore === null || weekSummary.performanceScore === undefined ? "N/A" : Number(weekSummary.performanceScore).toFixed(2),
   };
 
   return rawMap[label] || "";
@@ -514,11 +547,17 @@ function formatComparisonRaw(label, weekSummary) {
     }`,
     AHT: `Avg time: ${formatTime(weekSummary.ahtSeconds)}`,
     Attendance: `Avg attendance: ${formatPercent(weekSummary.attendancePercentValue)}`,
+    "Quality Assurance": `Avg QA: ${formatPercent(weekSummary.qaPercentValue)}`,
     QA: `Avg QA: ${formatPercent(weekSummary.qaPercentValue)}`,
     Overall: `${includesQa ? "Weighted overall" : "Weighted overall | QA pending"}: ${
       weekSummary.overallScore === null || weekSummary.overallScore === undefined
         ? "N/A"
         : Number(weekSummary.overallScore).toFixed(2)
+    }`,
+    Performance: `Performance score: ${
+      weekSummary.performanceScore === null || weekSummary.performanceScore === undefined
+        ? "N/A"
+        : Number(weekSummary.performanceScore).toFixed(2)
     }`,
   };
 
@@ -558,20 +597,46 @@ function getWeakestKpi(record) {
     .sort((left, right) => left.score - right.score || left.label.localeCompare(right.label))[0] || null;
 }
 
-export function renderLineChart(canvas, chart, weeklyAverages) {
+function getFocusMetrics(focus = "performance") {
+  return FOCUS_METRICS[focus] || FOCUS_METRICS.performance;
+}
+
+function formatMetricRaw(metric, item) {
+  switch (metric?.rawType) {
+    case "transferRatePercent":
+      return `Avg rate: ${formatPercent(item?.transferRatePercent)}`;
+    case "admitsCount":
+      return `Avg count: ${item?.admitsCount === null || item?.admitsCount === undefined ? "N/A" : Number(item.admitsCount).toFixed(2)}`;
+    case "ahtSeconds":
+      return `Avg time: ${formatTime(item?.ahtSeconds)}`;
+    case "attendancePercentValue":
+      return `Avg attendance: ${formatPercent(item?.attendancePercentValue)}`;
+    case "qaPercentValue":
+      return `Avg QA: ${formatPercent(item?.qaPercentValue)}`;
+    case "overallScore":
+      return `Overall score: ${item?.overallScore === null || item?.overallScore === undefined ? "N/A" : Number(item.overallScore).toFixed(2)}`;
+    case "performanceScore":
+      return `Performance score: ${item?.performanceScore === null || item?.performanceScore === undefined ? "N/A" : Number(item.performanceScore).toFixed(2)}`;
+    default:
+      return "Average: N/A";
+  }
+}
+
+export function renderLineChart(canvas, chart, weeklyAverages, focus = "performance") {
   destroyIfExists(chart);
+  const metrics = getFocusMetrics(focus);
   return new Chart(canvas, {
     type: "line",
     data: {
       labels: weeklyAverages.map((item) => item.weekEnding),
-      datasets: [
-        { label: "Transfer", data: weeklyAverages.map((item) => item.transferScore), borderColor: CHART_COLORS.transfer, backgroundColor: CHART_COLORS.transfer, tension: 0.35 },
-        { label: "Admits", data: weeklyAverages.map((item) => item.admitsScore), borderColor: CHART_COLORS.admits, backgroundColor: CHART_COLORS.admits, tension: 0.35 },
-        { label: "AHT", data: weeklyAverages.map((item) => item.ahtScore), borderColor: CHART_COLORS.aht, backgroundColor: CHART_COLORS.aht, tension: 0.35 },
-        { label: "Attendance", data: weeklyAverages.map((item) => item.attendanceScore), borderColor: CHART_COLORS.attendance, backgroundColor: CHART_COLORS.attendance, tension: 0.35 },
-        { label: "QA", data: weeklyAverages.map((item) => item.qaScore), borderColor: CHART_COLORS.qa, backgroundColor: CHART_COLORS.qa, tension: 0.35 },
-        { label: "Overall", data: weeklyAverages.map((item) => item.overallScore), borderColor: CHART_COLORS.overall, backgroundColor: CHART_COLORS.overall, borderWidth: 3, tension: 0.35 },
-      ],
+      datasets: metrics.map((metric) => ({
+        label: metric.label,
+        data: weeklyAverages.map((item) => item[metric.scoreKey]),
+        borderColor: metric.color,
+        backgroundColor: metric.color,
+        borderWidth: metric.label === "Performance" ? 3 : 2,
+        tension: 0.35,
+      })),
     },
     options: {
       ...buildBaseOptions(),
@@ -586,15 +651,8 @@ export function renderLineChart(canvas, chart, weeklyAverages) {
             label(context) {
               const item = weeklyAverages[context.dataIndex];
               const score = Number(context.parsed.y).toFixed(2);
-              const rawMap = {
-                Transfer: `Avg rate: ${formatPercent(item?.transferRatePercent)}`,
-                Admits: `Avg count: ${item?.admitsCount === null || item?.admitsCount === undefined ? "N/A" : Number(item.admitsCount).toFixed(2)}`,
-                AHT: `Avg time: ${formatTime(item?.ahtSeconds)}`,
-                Attendance: `Avg attendance: ${formatPercent(item?.attendancePercentValue)}`,
-                QA: `Avg QA: ${formatPercent(item?.qaPercentValue)}`,
-                Overall: `Weighted overall: ${score}`,
-              };
-              return [`Score: ${score}`, rawMap[context.dataset.label]];
+              const metric = metrics.find((entry) => entry.label === context.dataset.label);
+              return [`Score: ${score}`, formatMetricRaw(metric, item)];
             },
           },
         },
@@ -603,9 +661,10 @@ export function renderLineChart(canvas, chart, weeklyAverages) {
   });
 }
 
-export function renderBarChart(canvas, chart, weekSummary) {
+export function renderBarChart(canvas, chart, weekSummary, focus = "performance") {
   destroyIfExists(chart);
-  const chartLabels = ["Transfer", "Admits", "AHT", "Attendance", "QA", "Overall"];
+  const metrics = getFocusMetrics(focus);
+  const chartLabels = metrics.map((metric) => metric.label);
   return new Chart(canvas, {
     type: "bar",
     data: {
@@ -613,15 +672,8 @@ export function renderBarChart(canvas, chart, weekSummary) {
       datasets: [
         {
           label: "Average Score",
-          data: [
-            weekSummary.transferScore,
-            weekSummary.admitsScore,
-            weekSummary.ahtScore,
-            weekSummary.attendanceScore,
-            weekSummary.qaScore,
-            weekSummary.overallScore,
-          ],
-          backgroundColor: [CHART_COLORS.transfer, CHART_COLORS.admits, CHART_COLORS.aht, CHART_COLORS.attendance, CHART_COLORS.qa, CHART_COLORS.overall],
+          data: metrics.map((metric) => weekSummary[metric.scoreKey]),
+          backgroundColor: metrics.map((metric) => metric.color),
           borderRadius: 10,
         },
       ],
@@ -653,7 +705,7 @@ export function renderBarChart(canvas, chart, weekSummary) {
                 Admits: `Avg count: ${weekSummary.admitsCount === null || weekSummary.admitsCount === undefined ? "N/A" : Number(weekSummary.admitsCount).toFixed(2)}`,
                 AHT: `Avg time: ${formatTime(weekSummary.ahtSeconds)}`,
                 Attendance: `Avg attendance: ${formatPercent(weekSummary.attendancePercentValue)}`,
-                QA: `Avg QA: ${formatPercent(weekSummary.qaPercentValue)}`,
+                "Quality Assurance": `Avg QA: ${formatPercent(weekSummary.qaPercentValue)}`,
                 Overall: `Weighted score`,
               };
               return [`Score: ${Number(context.parsed.y).toFixed(2)}`, rawMap[label]];
@@ -754,21 +806,15 @@ export function renderContributionChart(canvas, chart, weekSummary) {
   });
 }
 
-export function renderVarianceChart(canvas, chart, weeklyAverages) {
+export function renderVarianceChart(canvas, chart, weeklyAverages, focus = "performance") {
   destroyIfExists(chart);
   const isMobile = isMobileViewport();
   const currentWeek = weeklyAverages.at(-1) || null;
   const previousWeek = weeklyAverages.length > 1 ? weeklyAverages[0] : null;
-  const kpiLabels = ["Transfer", "Admits", "AHT", "Attendance", "QA", "Overall"];
-  const kpiKeys = ["transferScore", "admitsScore", "ahtScore", "attendanceScore", "qaScore", "overallScore"];
-  const colors = [
-    CHART_COLORS.transfer,
-    CHART_COLORS.admits,
-    CHART_COLORS.aht,
-    CHART_COLORS.attendance,
-    CHART_COLORS.qa,
-    CHART_COLORS.overall,
-  ];
+  const metrics = getFocusMetrics(focus);
+  const kpiLabels = metrics.map((metric) => metric.label);
+  const kpiKeys = metrics.map((metric) => metric.scoreKey);
+  const colors = metrics.map((metric) => metric.color);
 
   const varianceValues = kpiKeys.map((key) => {
     if (
@@ -887,11 +933,13 @@ export function renderVarianceChart(canvas, chart, weeklyAverages) {
   });
 }
 
-export function renderRankingList(container, records) {
+export function renderRankingList(container, records, options = {}) {
   if (!container) return;
+  const scoreKey = options.scoreKey || "overallScore";
+  const scoreLabel = options.scoreLabel || "Overall";
   const ranked = [...records]
-    .filter((record) => typeof record.overallScore === "number" && !Number.isNaN(record.overallScore))
-    .sort((left, right) => right.overallScore - left.overallScore)
+    .filter((record) => typeof record[scoreKey] === "number" && !Number.isNaN(record[scoreKey]))
+    .sort((left, right) => right[scoreKey] - left[scoreKey])
     .slice(0, 5);
   if (!ranked.length) {
     container.innerHTML = '<div class="status-message">No ranked rows are available for the current selection.</div>';
@@ -901,21 +949,24 @@ export function renderRankingList(container, records) {
   container.innerHTML = ranked.map((record, index) => {
     const weakestKpi = getWeakestKpi(record);
     const rankClass = index === 0 ? "is-rank-1" : index === 1 ? "is-rank-2" : index === 2 ? "is-rank-3" : "";
-    const width = Math.max(8, Math.min(100, (Number(record.overallScore) / 5) * 100));
+    const width = Math.max(8, Math.min(100, (Number(record[scoreKey]) / 5) * 100));
+    const secondaryMeta = scoreKey === "performanceScore"
+      ? (weakestKpi ? `Weakest: ${weakestKpi.label} (${Number(weakestKpi.score).toFixed(0)})` : "Weakest: N/A")
+      : `Overall ${isValidMetric(record?.overallScore) ? Number(record.overallScore).toFixed(2) : "N/A"}`;
     return `
       <article class="ranking-list-item ${rankClass}" role="listitem">
         <div class="ranking-list-rank">#${index + 1}</div>
         <div class="ranking-list-main">
           <div class="ranking-list-topline">
-            <strong>${record.agentName}</strong>
-            <span>${Number(record.overallScore).toFixed(2)}</span>
+            <strong>${getChartDisplayName(record.agentName)}</strong>
+            <span>${Number(record[scoreKey]).toFixed(2)}</span>
           </div>
           <div class="ranking-list-bar-track" aria-hidden="true">
             <span class="ranking-list-bar-fill" style="width: ${width}%"></span>
           </div>
           <div class="ranking-list-meta">
-            <span>Performance ${isValidMetric(record?.performanceScore) ? Number(record.performanceScore).toFixed(2) : "N/A"}</span>
-            <span>${weakestKpi ? `Weakest: ${weakestKpi.label} (${Number(weakestKpi.score).toFixed(0)})` : "Weakest: N/A"}</span>
+            <span>${scoreLabel} ${isValidMetric(record?.[scoreKey]) ? Number(record[scoreKey]).toFixed(2) : "N/A"}</span>
+            <span>${secondaryMeta}</span>
           </div>
         </div>
       </article>
@@ -923,60 +974,23 @@ export function renderRankingList(container, records) {
   }).join("");
 }
 
-export function renderStackedBarChart(canvas, chart, records, onRowSelect) {
+export function renderStackedBarChart(canvas, chart, records, onRowSelect, focus = "performance") {
   destroyIfExists(chart);
   const isMobile = isMobileViewport();
+  const metrics = getFocusMetrics(focus).filter((metric) => !["Performance", "Overall"].includes(metric.label));
   return new Chart(canvas, {
     type: "bar",
     data: {
-      labels: records.map((record) => record.agentName),
-      datasets: [
-        {
-          label: "Transfer",
-          data: records.map((record) => record.transferScore),
-          backgroundColor: CHART_COLORS.transfer,
-          borderRadius: 8,
-          maxBarThickness: isMobile ? 18 : 18,
-          categoryPercentage: isMobile ? 0.9 : 0.72,
-          barPercentage: isMobile ? 0.98 : 0.82,
-        },
-        {
-          label: "Admits",
-          data: records.map((record) => record.admitsScore),
-          backgroundColor: CHART_COLORS.admits,
-          borderRadius: 8,
-          maxBarThickness: isMobile ? 18 : 18,
-          categoryPercentage: isMobile ? 0.9 : 0.72,
-          barPercentage: isMobile ? 0.98 : 0.82,
-        },
-        {
-          label: "AHT",
-          data: records.map((record) => record.ahtScore),
-          backgroundColor: CHART_COLORS.aht,
-          borderRadius: 8,
-          maxBarThickness: isMobile ? 18 : 18,
-          categoryPercentage: isMobile ? 0.9 : 0.72,
-          barPercentage: isMobile ? 0.98 : 0.82,
-        },
-        {
-          label: "Attendance",
-          data: records.map((record) => record.attendanceScore),
-          backgroundColor: CHART_COLORS.attendance,
-          borderRadius: 8,
-          maxBarThickness: isMobile ? 18 : 18,
-          categoryPercentage: isMobile ? 0.9 : 0.72,
-          barPercentage: isMobile ? 0.98 : 0.82,
-        },
-        {
-          label: "QA",
-          data: records.map((record) => record.qaScore),
-          backgroundColor: CHART_COLORS.qa,
-          borderRadius: 8,
-          maxBarThickness: isMobile ? 18 : 18,
-          categoryPercentage: isMobile ? 0.9 : 0.72,
-          barPercentage: isMobile ? 0.98 : 0.82,
-        },
-      ],
+      labels: records.map((record) => getChartDisplayName(record.agentName)),
+      datasets: metrics.map((metric) => ({
+        label: metric.label,
+        data: records.map((record) => record[metric.scoreKey]),
+        backgroundColor: metric.color,
+        borderRadius: 8,
+        maxBarThickness: 18,
+        categoryPercentage: isMobile ? 0.9 : 0.72,
+        barPercentage: isMobile ? 0.98 : 0.82,
+      })),
     },
     options: {
       ...buildBaseOptions(),
@@ -1012,7 +1026,7 @@ export function renderStackedBarChart(canvas, chart, records, onRowSelect) {
                 Admits: `Avg count: ${record?.admitsCount === null || record?.admitsCount === undefined ? "N/A" : Number(record.admitsCount).toFixed(0)}`,
                 AHT: `Avg time: ${formatTime(record?.ahtSeconds)}`,
                 Attendance: `Avg attendance: ${formatPercent(record?.attendancePercentValue)}`,
-                QA: `Avg QA: ${formatPercent(record?.qaPercentValue)}`,
+                "Quality Assurance": `Avg QA: ${formatPercent(record?.qaPercentValue)}`,
               };
               return [`Score: ${Number.isFinite(parsedValue) ? parsedValue.toFixed(2) : "N/A"}`, rawMap[context.dataset.label]];
             },
@@ -1078,20 +1092,14 @@ export function renderStackedBarChart(canvas, chart, records, onRowSelect) {
   });
 }
 
-export function renderComparisonChart(canvas, chart, weeklyAverages) {
+export function renderComparisonChart(canvas, chart, weeklyAverages, focus = "performance") {
   destroyIfExists(chart);
   const currentWeek = weeklyAverages.at(-1) || null;
   const previousWeek = weeklyAverages.length > 1 ? weeklyAverages[0] : null;
-  const kpiLabels = ["Transfer", "Admits", "AHT", "Attendance", "QA", "Overall"];
-  const kpiKeys = ["transferScore", "admitsScore", "ahtScore", "attendanceScore", "qaScore", "overallScore"];
-  const colors = [
-    CHART_COLORS.transfer,
-    CHART_COLORS.admits,
-    CHART_COLORS.aht,
-    CHART_COLORS.attendance,
-    CHART_COLORS.qa,
-    CHART_COLORS.overall,
-  ];
+  const metrics = getFocusMetrics(focus);
+  const kpiLabels = metrics.map((metric) => metric.label);
+  const kpiKeys = metrics.map((metric) => metric.scoreKey);
+  const colors = metrics.map((metric) => metric.color);
 
   return new Chart(canvas, {
     type: "bar",
@@ -1197,7 +1205,7 @@ function buildDistributionData(records, field) {
     count: records.filter((record) => Math.round(record[field]) === score).length,
     agents: records
       .filter((record) => Math.round(record[field]) === score)
-      .map((record) => record.agentName)
+      .map((record) => getChartDisplayName(record.agentName))
       .sort((left, right) => left.localeCompare(right)),
   }));
   const total = counts.reduce((sum, item) => sum + item.count, 0);
@@ -1317,17 +1325,148 @@ export function renderDistributionChart(canvas, chart, records, field, label, co
   });
 }
 
-export function renderTopBottomChart(canvas, chart, records, label) {
+export function renderScoreSpreadChart(canvas, chart, records, options = {}) {
+  destroyIfExists(chart);
+  const isMobile = isMobileViewport();
+  const scoreKey = options.scoreKey || "overallScore";
+  const scoreLabel = options.scoreLabel || "Overall";
+  const scored = records.filter((record) => typeof record[scoreKey] === "number" && !Number.isNaN(record[scoreKey]));
+  const bands = [
+    { label: "Below 2.0", color: "#d83b3b", predicate: (value) => value < 2, agents: [] },
+    { label: "2.0 to 2.99", color: "#f28c28", predicate: (value) => value >= 2 && value < 3, agents: [] },
+    { label: "3.0 to 3.99", color: "#e8b100", predicate: (value) => value >= 3 && value < 4, agents: [] },
+    { label: "4.0 to 4.49", color: "#74c365", predicate: (value) => value >= 4 && value < 4.5, agents: [] },
+    { label: "4.5 to 5.0", color: "#1f9d55", predicate: (value) => value >= 4.5, agents: [] },
+  ];
+
+  scored.forEach((record) => {
+    const value = Number(record[scoreKey]);
+    const band = bands.find((item) => item.predicate(value));
+    if (band) {
+      band.agents.push(getChartDisplayName(record.agentName));
+    }
+  });
+
+  const maxCount = Math.max(...bands.map((item) => item.agents.length), 0);
+  const suggestedMax = Math.max(1, maxCount + Math.max(1, Math.ceil(maxCount * 0.18)));
+
+  return new Chart(canvas, {
+    type: "bar",
+    data: {
+      labels: bands.map((item) => item.label),
+      datasets: [
+        {
+          label: `${scoreLabel} Spread`,
+          data: bands.map((item) => item.agents.length),
+          backgroundColor: bands.map((item) => item.agents.length ? item.color : "rgba(127, 143, 179, 0.18)"),
+          borderColor: bands.map((item) => item.color),
+          borderWidth: 1.2,
+          borderRadius: 10,
+          maxBarThickness: 44,
+        },
+      ],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: {
+        mode: "index",
+        intersect: false,
+      },
+      plugins: {
+        legend: {
+          display: false,
+        },
+        valueLabelPlugin: {
+          enabled: true,
+          color: "#10213d",
+          fontSize: isMobile ? 14 : 15,
+          fontWeight: "800",
+          offset: 12,
+          formatter(value) {
+            return String(Math.round(value));
+          },
+        },
+        tooltip: {
+          enabled: false,
+          external: externalDistributionTooltip,
+          callbacks: {
+            title(items) {
+              return items[0]?.label || "";
+            },
+            label(context) {
+              const count = Number(context.parsed.y || 0);
+              const percent = scored.length ? ((count / scored.length) * 100).toFixed(1) : "0.0";
+              return [`Agents: ${count}`, `Share: ${percent}%`];
+            },
+            afterBody(items) {
+              const index = items[0]?.dataIndex ?? -1;
+              if (index < 0) return [];
+              return buildDistributionAgentTooltipLines((bands[index]?.agents || []).sort((left, right) => left.localeCompare(right)));
+            },
+            afterLabel() {
+              return [];
+            },
+            footer() {
+              return `Scored agents: ${scored.length}`;
+            },
+          },
+        },
+      },
+      scales: {
+        x: {
+          offset: true,
+          grid: {
+            display: false,
+          },
+          ticks: {
+            maxRotation: 0,
+            minRotation: 0,
+            padding: isMobile ? 10 : 6,
+            color: "#6e7d98",
+            font: {
+              size: isMobile ? 11 : 12,
+              weight: "700",
+            },
+            callback(_value, index) {
+              if (!isMobile) return bands[index]?.label || "";
+              const shortLabels = ["<2.0", "2-2.9", "3-3.9", "4-4.4", "4.5+"];
+              return shortLabels[index] || bands[index]?.label || "";
+            },
+          },
+        },
+        y: {
+          beginAtZero: true,
+          suggestedMax,
+          grid: {
+            display: false,
+          },
+          ticks: {
+            display: false,
+          },
+          border: {
+            display: false,
+          },
+        },
+      },
+      layout: {
+        padding: isMobile ? { left: 6, right: 6, top: 2, bottom: 18 } : { left: 8, right: 8, top: 4, bottom: 8 },
+      },
+    },
+  });
+}
+
+export function renderTopBottomChart(canvas, chart, records, label, scoreKey = "overallScore") {
   destroyIfExists(chart);
   return new Chart(canvas, {
     type: "bar",
     data: {
-      labels: records.map((record) => record.agentName),
+      labels: records.map((record) => getChartDisplayName(record.agentName)),
       datasets: [
         {
           label,
-          data: records.map((record) => record.overallScore),
-          backgroundColor: records.map((record) => scoreColor(record.overallScore)),
+          data: records.map((record) => record[scoreKey]),
+          backgroundColor: records.map((record) => scoreColor(record[scoreKey])),
           borderRadius: 10,
         },
       ],
@@ -1366,15 +1505,15 @@ export function renderTopBottomChart(canvas, chart, records, label) {
   });
 }
 
-export function renderImprovementChart(canvas, chart, records) {
+export function renderImprovementChart(canvas, chart, records, metricLabel = "Improvement") {
   destroyIfExists(chart);
   return new Chart(canvas, {
     type: "bar",
     data: {
-      labels: records.map((record) => record.agentName),
+      labels: records.map((record) => getChartDisplayName(record.agentName)),
       datasets: [
         {
-          label: "Improvement",
+          label: metricLabel,
           data: records.map((record) => record.delta),
           backgroundColor: records.map((record) =>
             record.delta >= 0 ? CHART_COLORS.admits : hexToRgba(CHART_COLORS.admits, 0.26)
@@ -1424,9 +1563,9 @@ export function renderImprovementChart(canvas, chart, records) {
               const delta = Number(context.parsed.y);
               const prefix = delta > 0 ? "+" : "";
               return [
-                `Improvement: ${prefix}${delta.toFixed(2)}`,
-                `Current overall: ${Number(record.currentOverallScore).toFixed(2)}`,
-                `Previous overall: ${Number(record.previousOverallScore).toFixed(2)}`,
+                `${metricLabel}: ${prefix}${delta.toFixed(2)}`,
+                `Current score: ${Number(record.currentOverallScore).toFixed(2)}`,
+                `Previous score: ${Number(record.previousOverallScore).toFixed(2)}`,
               ];
             },
           },

@@ -1,14 +1,71 @@
-const COLUMNS = [
-  { key: "agentName", label: "Agent Name", type: "text" },
-  { key: "weekEnding", label: "Week Ending", type: "text" },
-  { key: "transfer", label: "Transfer", type: "kpi" },
-  { key: "admits", label: "Admits", type: "kpi" },
-  { key: "aht", label: "AHT", type: "kpi" },
-  { key: "attendance", label: "Attendance", type: "kpi" },
-  { key: "qa", label: "QA", type: "kpi" },
-  { key: "performanceScore", label: "Performance", type: "number2" },
-  { key: "overallScore", label: "Overall", type: "number2" },
-];
+const COLUMN_SETS = {
+  all: [
+    { key: "agentName", label: "Agent Name", type: "text" },
+    { key: "weekEnding", label: "Week Ending", type: "text" },
+    { key: "transfer", label: "Transfer", type: "kpi" },
+    { key: "admits", label: "Admits", type: "kpi" },
+    { key: "aht", label: "AHT", type: "kpi" },
+    { key: "attendance", label: "Attendance", type: "kpi" },
+    { key: "qa", label: "Quality Assurance", type: "kpi" },
+    { key: "overallScore", label: "Overall", type: "number2" },
+  ],
+  performance: [
+    { key: "agentName", label: "Agent Name", type: "text" },
+    { key: "weekEnding", label: "Week Ending", type: "text" },
+    { key: "transfer", label: "Transfer", type: "kpi" },
+    { key: "admits", label: "Admits", type: "kpi" },
+    { key: "aht", label: "AHT", type: "kpi" },
+    { key: "performanceScore", label: "Performance", type: "number2" },
+  ],
+  attendance: [
+    { key: "agentName", label: "Agent Name", type: "text" },
+    { key: "weekEnding", label: "Week Ending", type: "text" },
+    { key: "attendance", label: "Attendance", type: "kpi" },
+    { key: "attendanceScore", label: "Attendance Score", type: "number2" },
+    { key: "performanceScore", label: "Performance", type: "number2" },
+    { key: "overallScore", label: "Overall", type: "number2" },
+  ],
+  qa: [
+    { key: "agentName", label: "Agent Name", type: "text" },
+    { key: "weekEnding", label: "Week Ending", type: "text" },
+    { key: "qa", label: "Quality Assurance", type: "kpi" },
+    { key: "performanceScore", label: "Performance", type: "number2" },
+    { key: "overallScore", label: "Overall", type: "number2" },
+  ],
+};
+
+function getColumns(focus = "performance") {
+  return COLUMN_SETS[focus] || COLUMN_SETS.all;
+}
+
+function getSummaryMetricConfig(focus = "performance") {
+  if (focus === "all") {
+    return {
+      key: "overallScore",
+      label: "Overall",
+      description: "Mean overall score across shown rows.",
+    };
+  }
+  if (focus === "attendance") {
+    return {
+      key: "attendanceScore",
+      label: "Attendance",
+      description: "Mean attendance score across shown rows.",
+    };
+  }
+  if (focus === "qa") {
+    return {
+      key: "qaScore",
+      label: "Quality Assurance",
+      description: "Mean QA score across shown rows.",
+    };
+  }
+  return {
+    key: "performanceScore",
+    label: "Performance",
+    description: "Mean performance score across shown rows.",
+  };
+}
 
 function getColumnSortLabel(column, sortState) {
   if (sortState.key !== column.key) return column.label;
@@ -19,17 +76,21 @@ function scoreText(value) {
   return value === null || value === undefined || Number.isNaN(value) ? "N/A" : Number(value).toFixed(2);
 }
 
-function getRowState(record) {
-  const kpiScores = [
-    record.transferScore,
-    record.admitsScore,
-    record.ahtScore,
-    record.attendanceScore,
-    record.qaScore,
-  ].filter((value) => typeof value === "number" && !Number.isNaN(value));
-  const weakestScore = kpiScores.length ? Math.min(...kpiScores) : null;
+function getRowState(record, focus = "performance") {
+  const focusKey = focus === "all" ? "overallScore" : focus === "attendance" ? "attendanceScore" : focus === "qa" ? "qaScore" : "performanceScore";
+  const focusValue = record[focusKey];
+  const candidateScores = focus === "all"
+    ? [record.transferScore, record.admitsScore, record.ahtScore, record.attendanceScore, record.qaScore]
+    : focus === "performance"
+    ? [record.transferScore, record.admitsScore, record.ahtScore]
+    : focus === "attendance"
+      ? [record.attendanceScore]
+      : [record.qaScore];
+  const weakestScore = candidateScores
+    .filter((value) => typeof value === "number" && !Number.isNaN(value))
+    .reduce((lowest, value) => (lowest === null ? value : Math.min(lowest, value)), null);
 
-  if (typeof record.overallScore === "number" && record.overallScore >= 4.25) return "top";
+  if (typeof focusValue === "number" && focusValue >= 4.25) return "top";
   if (weakestScore !== null && weakestScore <= 2) return "watch";
   return "steady";
 }
@@ -40,31 +101,99 @@ function getRowStateLabel(rowState) {
   return "Stable";
 }
 
-function getDetailKpiRows(record) {
+function getDetailKpiRows(record, focus = "performance") {
+  if (focus === "all") {
+    return [
+      ["Transfer", `${record.transferRateDisplay} | Score ${scoreText(record.transferScore)}`],
+      ["Admits", `${record.admitsCount === null || record.admitsCount === undefined ? "N/A" : Number(record.admitsCount).toFixed(0)} | Score ${scoreText(record.admitsScore)}`],
+      ["AHT", `${record.ahtDisplay} | Score ${scoreText(record.ahtScore)}`],
+      ["Attendance", `${record.attendancePercentDisplay} | Score ${scoreText(record.attendanceScore)}`],
+      ["Quality Assurance", `${record.qaPercentDisplay} | Score ${scoreText(record.qaScore)}`],
+      ["Overall", scoreText(record.overallScore)],
+    ];
+  }
+
+  if (focus === "attendance") {
+    return [
+      ["Attendance", `${record.attendancePercentDisplay} | Score ${scoreText(record.attendanceScore)}`],
+      ["Performance", scoreText(record.performanceScore)],
+      ["Overall", scoreText(record.overallScore)],
+    ];
+  }
+
+  if (focus === "qa") {
+    return [
+      ["Quality Assurance", `${record.qaPercentDisplay} | Score ${scoreText(record.qaScore)}`],
+      ["Performance", scoreText(record.performanceScore)],
+      ["Overall", scoreText(record.overallScore)],
+    ];
+  }
+
   return [
     ["Transfer", `${record.transferRateDisplay} | Score ${scoreText(record.transferScore)}`],
+    ["First-Time Callers", record.firstTimeCaller === null || record.firstTimeCaller === undefined ? "N/A" : Number(record.firstTimeCaller).toFixed(0)],
+    ["Transfer Count", record.transferCount === null || record.transferCount === undefined ? "N/A" : Number(record.transferCount).toFixed(0)],
     ["Admits", `${record.admitsCount === null || record.admitsCount === undefined ? "N/A" : Number(record.admitsCount).toFixed(0)} | Score ${scoreText(record.admitsScore)}`],
     ["AHT", `${record.ahtDisplay} | Score ${scoreText(record.ahtScore)}`],
-    ["Attendance", `${record.attendancePercentDisplay} | Score ${scoreText(record.attendanceScore)}`],
-    ["QA", `${record.qaPercentDisplay} | Score ${scoreText(record.qaScore)}`],
+    ["Inbound Calls", record.inboundCalls === null || record.inboundCalls === undefined ? "N/A" : Number(record.inboundCalls).toFixed(0)],
+    ["Inbound Minutes", record.inboundMinutes || "N/A"],
+    ["Hold Time", record.holdTime || "N/A"],
+    ["Overall", scoreText(record.overallScore)],
   ];
 }
 
-function renderExpandedRow(record) {
-  const detailItems = getDetailKpiRows(record)
-    .map(([label, value]) => `<div class="table-detail-item"><span>${label}</span><strong>${value}</strong></div>`)
-    .join("");
+function renderPerformanceDetailGroups(record) {
+  return `
+    <div class="table-detail-groups table-detail-groups-performance">
+      <article class="table-detail-group table-detail-group-transfer">
+        <div class="table-detail-group-header">
+          <span class="table-detail-group-label">Transfer</span>
+          <span class="score-pill ${record.transferScore === null || record.transferScore === undefined || Number.isNaN(record.transferScore) ? "score-na" : `score-${Math.round(record.transferScore)}`}">${record.transferScore === null || record.transferScore === undefined || Number.isNaN(record.transferScore) ? "N/A" : Math.round(record.transferScore)}</span>
+        </div>
+        <strong>${record.transferRateDisplay}</strong>
+        <p>First-Time Callers: ${record.firstTimeCaller === null || record.firstTimeCaller === undefined ? "N/A" : Number(record.firstTimeCaller).toFixed(0)}</p>
+        <p>Transfer Count: ${record.transferCount === null || record.transferCount === undefined ? "N/A" : Number(record.transferCount).toFixed(0)}</p>
+      </article>
+      <article class="table-detail-group table-detail-group-admits">
+        <div class="table-detail-group-header">
+          <span class="table-detail-group-label">Admits</span>
+          <span class="score-pill ${record.admitsScore === null || record.admitsScore === undefined || Number.isNaN(record.admitsScore) ? "score-na" : `score-${Math.round(record.admitsScore)}`}">${record.admitsScore === null || record.admitsScore === undefined || Number.isNaN(record.admitsScore) ? "N/A" : Math.round(record.admitsScore)}</span>
+        </div>
+        <strong>${record.admitsCount === null || record.admitsCount === undefined ? "N/A" : Number(record.admitsCount).toFixed(0)}</strong>
+        <p>Admit Count for this selected row.</p>
+      </article>
+      <article class="table-detail-group table-detail-group-aht">
+        <div class="table-detail-group-header">
+          <span class="table-detail-group-label">AHT</span>
+          <span class="score-pill ${record.ahtScore === null || record.ahtScore === undefined || Number.isNaN(record.ahtScore) ? "score-na" : `score-${Math.round(record.ahtScore)}`}">${record.ahtScore === null || record.ahtScore === undefined || Number.isNaN(record.ahtScore) ? "N/A" : Math.round(record.ahtScore)}</span>
+        </div>
+        <strong>${record.ahtDisplay}</strong>
+        <p>Inbound Calls: ${record.inboundCalls === null || record.inboundCalls === undefined ? "N/A" : Number(record.inboundCalls).toFixed(0)}</p>
+        <p>Inbound Minutes: ${record.inboundMinutes || "N/A"}</p>
+        <p>Hold Time: ${record.holdTime || "N/A"}</p>
+      </article>
+    </div>
+  `;
+}
+
+function renderExpandedRow(record, focus = "performance") {
+  const columns = getColumns(focus);
+  const detailItems = focus === "performance"
+    ? renderPerformanceDetailGroups(record)
+    : getDetailKpiRows(record, focus)
+      .map(([label, value]) => `<div class="table-detail-item"><span>${label}</span><strong>${value}</strong></div>`)
+      .join("");
 
   return `
     <tr class="table-detail-row">
-      <td colspan="${COLUMNS.length}">
+      <td colspan="${columns.length}">
         <div class="table-detail-panel">
           <div class="table-detail-topline">
-            <span class="table-row-state table-row-state-${getRowState(record)}">${getRowStateLabel(getRowState(record))}</span>
+            <span class="table-row-state table-row-state-${getRowState(record, focus)}">${getRowStateLabel(getRowState(record, focus))}</span>
             <strong>${record.agentName} | Week Ending ${record.weekEnding}</strong>
-            <span>Overall ${scoreText(record.overallScore)} | Performance ${scoreText(record.performanceScore)}</span>
+            <span>${focus === "all" ? `Overall ${scoreText(record.overallScore)}` : focus === "performance" ? `Performance ${scoreText(record.performanceScore)}` : focus === "attendance" ? `Attendance ${scoreText(record.attendanceScore)}` : `Quality Assurance ${scoreText(record.qaScore)}`}</span>
           </div>
-          <div class="table-detail-grid">${detailItems}</div>
+          <div class="${focus === "performance" ? "table-detail-shell" : "table-detail-grid"}">${detailItems}</div>
         </div>
       </td>
     </tr>
@@ -91,6 +220,10 @@ function formatValue(column, record) {
   if (column.type === "kpi") {
     return renderKpiCell(record, column.key);
   }
+  if (column.type === "number0") {
+    const value = record[column.key];
+    return value === null || value === undefined || Number.isNaN(value) ? "N/A" : Number(value).toFixed(0);
+  }
   if (column.type === "number2") {
     const value = record[column.key];
     return value === null || value === undefined || Number.isNaN(value) ? "N/A" : Number(value).toFixed(2);
@@ -99,12 +232,16 @@ function formatValue(column, record) {
 }
 
 function buildTableCell(column, record) {
+  if (column.key === "agentName") {
+    return `<td data-label="${column.label}"><div class="table-row-trigger"><strong>${record.agentName}</strong><span>Click to view details</span></div></td>`;
+  }
   return `<td data-label="${column.label}">${formatValue(column, record)}</td>`;
 }
 
-export function initializeTable(headRow, onSort, sortState) {
+export function initializeTable(headRow, onSort, sortState, focus = "performance") {
+  const columns = getColumns(focus);
   headRow.innerHTML = "";
-  COLUMNS.forEach((column) => {
+  columns.forEach((column) => {
     const th = document.createElement("th");
     th.scope = "col";
     th.textContent = getColumnSortLabel(column, sortState);
@@ -113,25 +250,57 @@ export function initializeTable(headRow, onSort, sortState) {
   });
 }
 
-export function renderTableSummary(summaryElement, records) {
+export function renderTableSummary(summaryElement, records, focus = "performance") {
   if (!summaryElement) return;
   if (!records.length) {
     summaryElement.innerHTML = "";
     return;
   }
 
-  const validOverall = records
-    .map((record) => record.overallScore)
+  const metric = getSummaryMetricConfig(focus);
+  const uniqueAgents = [...new Set(records.map((record) => record.agentName))];
+  const singleAgentView = uniqueAgents.length === 1;
+  const validScores = records
+    .map((record) => record[metric.key])
     .filter((value) => typeof value === "number" && !Number.isNaN(value));
-  const averageOverall = validOverall.length
-    ? validOverall.reduce((sum, value) => sum + value, 0) / validOverall.length
+  const averageScore = validScores.length
+    ? validScores.reduce((sum, value) => sum + value, 0) / validScores.length
     : null;
+  const latestRecord = [...records]
+    .sort((left, right) => (left.weekDate?.getTime() ?? 0) - (right.weekDate?.getTime() ?? 0))
+    .at(-1);
   const topRecord = [...records]
-    .filter((record) => typeof record.overallScore === "number" && !Number.isNaN(record.overallScore))
-    .sort((left, right) => right.overallScore - left.overallScore)[0];
+    .filter((record) => typeof record[metric.key] === "number" && !Number.isNaN(record[metric.key]))
+    .sort((left, right) => right[metric.key] - left[metric.key])[0];
   const lowRecord = [...records]
-    .filter((record) => typeof record.overallScore === "number" && !Number.isNaN(record.overallScore))
-    .sort((left, right) => left.overallScore - right.overallScore)[0];
+    .filter((record) => typeof record[metric.key] === "number" && !Number.isNaN(record[metric.key]))
+    .sort((left, right) => left[metric.key] - right[metric.key])[0];
+
+  if (singleAgentView) {
+    summaryElement.innerHTML = `
+      <div class="table-summary-card">
+        <span class="table-summary-label">Agent In View</span>
+        <strong>${uniqueAgents[0]}</strong>
+        <p>Current filtered agent scope.</p>
+      </div>
+      <div class="table-summary-card">
+        <span class="table-summary-label">Weeks Shown</span>
+        <strong>${records.length}</strong>
+        <p>Weekly rows available for this agent.</p>
+      </div>
+      <div class="table-summary-card">
+        <span class="table-summary-label">Average ${metric.label}</span>
+        <strong>${scoreText(averageScore)}</strong>
+        <p>${metric.description}</p>
+      </div>
+      <div class="table-summary-card">
+        <span class="table-summary-label">Latest ${metric.label}</span>
+        <strong>${latestRecord ? `${latestRecord.weekEnding} | ${scoreText(latestRecord[metric.key])}` : "N/A"}</strong>
+        <p>Most recent visible week for this agent.</p>
+      </div>
+    `;
+    return;
+  }
 
   summaryElement.innerHTML = `
     <div class="table-summary-card">
@@ -140,29 +309,30 @@ export function renderTableSummary(summaryElement, records) {
       <p>Current filtered records in view.</p>
     </div>
     <div class="table-summary-card">
-      <span class="table-summary-label">Average Overall</span>
-      <strong>${scoreText(averageOverall)}</strong>
-      <p>Mean weighted score across shown rows.</p>
+      <span class="table-summary-label">Average ${metric.label}</span>
+      <strong>${scoreText(averageScore)}</strong>
+      <p>${metric.description}</p>
     </div>
     <div class="table-summary-card">
-      <span class="table-summary-label">Highest Overall</span>
-      <strong>${topRecord ? `${topRecord.agentName} ${scoreText(topRecord.overallScore)}` : "N/A"}</strong>
-      <p>Best row in the current table selection.</p>
+      <span class="table-summary-label">Highest ${metric.label}</span>
+      <strong>${topRecord ? `${topRecord.agentName} ${scoreText(topRecord[metric.key])}` : "N/A"}</strong>
+      <p>Best row in the current focus selection.</p>
     </div>
     <div class="table-summary-card">
-      <span class="table-summary-label">Lowest Overall</span>
-      <strong>${lowRecord ? `${lowRecord.agentName} ${scoreText(lowRecord.overallScore)}` : "N/A"}</strong>
-      <p>Watch this row for coaching follow-up.</p>
+      <span class="table-summary-label">Lowest ${metric.label}</span>
+      <strong>${lowRecord ? `${lowRecord.agentName} ${scoreText(lowRecord[metric.key])}` : "N/A"}</strong>
+      <p>Most urgent row to review for this focus.</p>
     </div>
   `;
 }
 
-export function renderTable(bodyElement, records, selectedRowKey, onRowSelect) {
+export function renderTable(bodyElement, records, expandedRowKeys, onRowSelect, focus = "performance") {
+  const columns = getColumns(focus);
   bodyElement.innerHTML = "";
   if (!records.length) {
     const row = document.createElement("tr");
     const cell = document.createElement("td");
-    cell.colSpan = COLUMNS.length;
+    cell.colSpan = columns.length;
     cell.innerHTML = '<div class="status-message">No rows match the current filters.</div>';
     row.appendChild(cell);
     bodyElement.appendChild(row);
@@ -170,13 +340,14 @@ export function renderTable(bodyElement, records, selectedRowKey, onRowSelect) {
   }
 
   records.forEach((record) => {
-    const rowState = getRowState(record);
+    const rowState = getRowState(record, focus);
     const row = document.createElement("tr");
-    row.className = `table-data-row table-data-row-${rowState}${selectedRowKey === record.key ? " is-selected" : ""}`;
+    const isExpanded = expandedRowKeys instanceof Set ? expandedRowKeys.has(record.key) : false;
+    row.className = `table-data-row table-data-row-${rowState}${isExpanded ? " is-selected" : ""}`;
     row.tabIndex = 0;
     row.setAttribute("role", "button");
-    row.setAttribute("aria-expanded", selectedRowKey === record.key ? "true" : "false");
-    row.innerHTML = COLUMNS.map((column) => buildTableCell(column, record)).join("");
+    row.setAttribute("aria-expanded", isExpanded ? "true" : "false");
+    row.innerHTML = columns.map((column) => buildTableCell(column, record)).join("");
     row.addEventListener("click", () => onRowSelect(record.key));
     row.addEventListener("keydown", (event) => {
       if (event.key === "Enter" || event.key === " ") {
@@ -186,9 +357,9 @@ export function renderTable(bodyElement, records, selectedRowKey, onRowSelect) {
     });
     bodyElement.appendChild(row);
 
-    if (selectedRowKey === record.key) {
+    if (isExpanded) {
       const detailRow = document.createElement("tbody");
-      detailRow.innerHTML = renderExpandedRow(record);
+      detailRow.innerHTML = renderExpandedRow(record, focus);
       bodyElement.appendChild(detailRow.firstElementChild);
     }
   });
@@ -219,20 +390,20 @@ export function sortRecords(records, sortState) {
   });
 }
 
-export function exportRowsToCsv(records) {
-  const headerRow = COLUMNS.map((column) => column.label).join(",");
+export function exportRowsToCsv(records, focus = "performance") {
+  const columns = getColumns(focus);
+  const headerRow = columns.map((column) => column.label).join(",");
   const lines = records.map((record) => {
-    const values = [
-      record.agentName,
-      record.weekEnding,
-      `${record.transferRateDisplay} ${record.transferScore ?? "N/A"}`,
-      `${record.admitsCount === null || record.admitsCount === undefined ? "N/A" : Number(record.admitsCount).toFixed(0)} ${record.admitsScore ?? "N/A"}`,
-      `${record.ahtDisplay} ${record.ahtScore ?? "N/A"}`,
-      `${record.attendancePercentDisplay} ${record.attendanceScore ?? "N/A"}`,
-      `${record.qaPercentDisplay} ${record.qaScore ?? "N/A"}`,
-      record.performanceScore === null || record.performanceScore === undefined ? "N/A" : Number(record.performanceScore).toFixed(2),
-      record.overallScore === null || record.overallScore === undefined ? "N/A" : Number(record.overallScore).toFixed(2),
-    ];
+    const values = columns.map((column) => {
+      if (column.key === "transfer") return `${record.transferRateDisplay} ${record.transferScore ?? "N/A"}`;
+      if (column.key === "admits") return `${record.admitsCount === null || record.admitsCount === undefined ? "N/A" : Number(record.admitsCount).toFixed(0)} ${record.admitsScore ?? "N/A"}`;
+      if (column.key === "aht") return `${record.ahtDisplay} ${record.ahtScore ?? "N/A"}`;
+      if (column.key === "attendance") return `${record.attendancePercentDisplay} ${record.attendanceScore ?? "N/A"}`;
+      if (column.key === "qa") return `${record.qaPercentDisplay} ${record.qaScore ?? "N/A"}`;
+      if (column.type === "number0") return record[column.key] === null || record[column.key] === undefined ? "N/A" : Number(record[column.key]).toFixed(0);
+      if (column.type === "number2") return record[column.key] === null || record[column.key] === undefined ? "N/A" : Number(record[column.key]).toFixed(2);
+      return record[column.key] ?? "";
+    });
     return values.map((value) => `"${String(value).replace(/"/g, '""')}"`).join(",");
   });
 
@@ -241,7 +412,7 @@ export function exportRowsToCsv(records) {
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
-  link.download = "flyland-kpi-dashboard.csv";
+  link.download = `flyland-${focus}-dashboard.csv`;
   document.body.appendChild(link);
   link.click();
   link.remove();

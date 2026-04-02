@@ -332,6 +332,8 @@ export function buildKpiDataset(rawDatasets) {
       const firstTimeCaller = safeNumber(record.firstTimeCaller);
       const transferCount = safeNumber(record.transferCount);
       const inboundCalls = safeNumber(record.inboundCalls);
+      const inboundMinutesSeconds = secondsFromDuration(record.inboundMinutes);
+      const holdTimeSeconds = secondsFromDuration(record.holdTime);
       const rawAdmitsCount = safeNumber(record.admitsCount);
       const transferRate = calculateTransferRate(transferCount, firstTimeCaller);
       const transferScore = calculateTransferScore(transferRate);
@@ -350,6 +352,8 @@ export function buildKpiDataset(rawDatasets) {
         firstTimeCaller,
         transferCount,
         inboundCalls,
+        inboundMinutesSeconds,
+        holdTimeSeconds,
         transferRate,
         transferRatePercent: transferRate === null ? null : transferRate * 100,
         transferRateDisplay: formatPercent(transferRate === null ? null : transferRate * 100),
@@ -397,6 +401,11 @@ export function buildKpiDataset(rawDatasets) {
       },
       transferRatePercent: average(items, (item) => item.transferRatePercent),
       admitsCount: average(items, (item) => item.admitsCount),
+      firstTimeCaller: average(items, (item) => item.firstTimeCaller),
+      transferCount: average(items, (item) => item.transferCount),
+      inboundCalls: average(items, (item) => item.inboundCalls),
+      inboundMinutesSeconds: average(items, (item) => item.inboundMinutesSeconds),
+      holdTimeSeconds: average(items, (item) => item.holdTimeSeconds),
       ahtSeconds: average(items, (item) => item.ahtSeconds),
       attendancePercentValue: average(items, (item) => item.attendancePercentValue),
       qaPercentValue: average(items, (item) => item.qaPercentValue),

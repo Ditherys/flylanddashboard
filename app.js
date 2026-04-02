@@ -6,11 +6,9 @@ import {
   renderComparisonChart,
   renderContributionChart,
   renderDistributionChart,
-  renderImprovementChart,
   renderLineChart,
-  renderRankingList,
+  renderScoreSpreadChart,
   renderStackedBarChart,
-  renderTopBottomChart,
   renderVarianceChart,
 } from "./charts.js";
 import { exportRowsToCsv, initializeTable, renderTable, renderTableSummary, sortRecords } from "./table.js";
@@ -18,8 +16,9 @@ import { exportRowsToCsv, initializeTable, renderTable, renderTableSummary, sort
 const state = {
   dataset: null,
   filters: { month: "all", week: "all", agent: "all", search: "" },
-  sort: { key: "overallScore", direction: "desc" },
-  selectedRowKey: null,
+  dashboardFocus: "performance",
+  sort: { key: "performanceScore", direction: "desc" },
+  expandedRowKeys: new Set(),
   mobileSidebarOpen: false,
   mobileTableExpanded: true,
   mobileFiltersExpanded: false,
@@ -58,12 +57,20 @@ const KPI_DEFINITIONS = [
   },
   {
     key: "qaScore",
-    label: "QA",
+    label: "Quality Assurance",
     raw: (summary) => `QA ${formatPercent(summary.qaPercentValue)}`,
   },
 ];
 
+const FOCUS_SCORING = {
+  all: { metricKey: "overallScore", title: "Overall", distribution: "transfer" },
+  performance: { metricKey: "performanceScore", title: "Performance", distribution: "transfer" },
+  attendance: { metricKey: "attendanceScore", title: "Attendance", distribution: "attendance" },
+  qa: { metricKey: "qaScore", title: "Quality Assurance", distribution: "qa" },
+};
+
 const elements = {
+  appShell: document.querySelector("#appShell"),
   mobileSidebar: document.querySelector("#mobileSidebarPanel"),
   mobileMenuToggle: document.querySelector("#mobileMenuToggle"),
   mobileTableToggle: document.querySelector("#mobileTableToggle"),
@@ -73,6 +80,7 @@ const elements = {
   mobileStatusWeek: document.querySelector("#mobileStatusWeek"),
   mobileStatusScope: document.querySelector("#mobileStatusScope"),
   mobileHomeButtons: [...document.querySelectorAll("[data-mobile-target]")],
+  focusButtons: [...document.querySelectorAll("[data-dashboard-focus]")],
   mobileBottomNavButtons: [...document.querySelectorAll(".mobile-bottom-nav-button[data-mobile-action]")],
   summaryCardsList: [...document.querySelectorAll(".summary-card")],
   mobileDistributionButtons: [...document.querySelectorAll(".distribution-mobile-chip[data-distribution-panel]")],
@@ -99,11 +107,14 @@ const elements = {
   tableSearch: document.querySelector("#tableSearch"),
   resetFilters: document.querySelector("#resetFilters"),
   exportCsvButton: document.querySelector("#exportCsvButton"),
+  expandAllRowsButton: document.querySelector("#expandAllRowsButton"),
+  collapseAllRowsButton: document.querySelector("#collapseAllRowsButton"),
   filtersCollapseToggle: document.querySelector("#filtersCollapseToggle"),
   filtersContentArea: document.querySelector("#filtersContentArea"),
   tableCollapseToggle: document.querySelector("#tableCollapseToggle"),
   tableContentArea: document.querySelector("#tableContentArea"),
   tableSummaryStrip: document.querySelector("#tableSummaryStrip"),
+  tableRowHint: document.querySelector("#tableRowHint"),
   tableHeadRow: document.querySelector("#tableHeadRow"),
   tableBody: document.querySelector("#tableBody"),
   dataStatusText: document.querySelector("#dataStatusText"),
@@ -116,14 +127,13 @@ const elements = {
   ahtDistributionChart: document.querySelector("#ahtDistributionChart"),
   attendanceDistributionChart: document.querySelector("#attendanceDistributionChart"),
   qaDistributionChart: document.querySelector("#qaDistributionChart"),
-  rankingList: document.querySelector("#rankingList"),
+  performerSpreadChart: document.querySelector("#performerSpreadChart"),
+  performerSpreadSummary: document.querySelector("#performerSpreadSummary"),
   stackedChart: document.querySelector("#stackedChart"),
   comparisonChart: document.querySelector("#comparisonChart"),
   comparisonTitle: document.querySelector("#comparisonTitle"),
   comparisonSubnote: document.querySelector("#comparisonSubnote"),
   rankingSubnote: document.querySelector("#rankingSubnote"),
-  bottomAgentsChart: document.querySelector("#bottomAgentsChart"),
-  mostImprovedChart: document.querySelector("#mostImprovedChart"),
   viewInsightTitle: document.querySelector("#viewInsightTitle"),
   viewInsightBody: document.querySelector("#viewInsightBody"),
   bestInsightTitle: document.querySelector("#bestInsightTitle"),
@@ -143,6 +153,21 @@ const elements = {
   navButtons: [...document.querySelectorAll(".nav-item[data-target]")],
   teamOnlySections: [...document.querySelectorAll("[data-scope='team-only']")],
   agentOnlySections: [...document.querySelectorAll("[data-scope='agent-only']")],
+  summaryCards: [...document.querySelectorAll(".summary-card[data-kpi]")],
+  focusGroupedNodes: [...document.querySelectorAll("[data-focus-group]")],
+  rawMetricsGrid: document.querySelector("#rawMetricsGrid"),
+  overallCardTitle: document.querySelector("#overallCardTitle"),
+  contributionCard: document.querySelector("#contributionCard"),
+  tableSectionSubnote: document.querySelector("#tableSectionSubnote"),
+  trendSectionTitle: document.querySelector("#trendSectionTitle"),
+  snapshotSectionTitle: document.querySelector("#snapshotSectionTitle"),
+  varianceSectionTitle: document.querySelector("#varianceSectionTitle"),
+  rankingSectionTitle: document.querySelector("#rankingSectionTitle"),
+  bottomSectionTitle: document.querySelector("#bottomSectionTitle"),
+  improvedSectionTitle: document.querySelector("#improvedSectionTitle"),
+  breakdownSectionTitle: document.querySelector("#breakdownSectionTitle"),
+  distributionSectionTitle: document.querySelector("#distributionSectionTitle"),
+  tableSectionTitle: document.querySelector("#tableSectionTitle"),
 };
 
 state.mobileMoreOpen = false;
@@ -267,9 +292,6 @@ function bindSummaryCardInteractions() {
     card.setAttribute("aria-expanded", "false");
 
     const toggleCard = () => {
-      const isMobile = typeof window !== "undefined" && window.innerWidth <= 720;
-      if (!isMobile) return;
-
       const willExpand = !card.classList.contains("is-mobile-expanded");
       elements.summaryCardsList.forEach((item) => {
         item.classList.remove("is-mobile-expanded");
@@ -299,7 +321,7 @@ function resetDashboardFilters() {
     agent: "all",
     search: "",
   };
-  state.selectedRowKey = null;
+  state.expandedRowKeys = new Set();
   elements.tableSearch.value = "";
   syncFilterOptions();
   updateDashboard();
@@ -397,13 +419,8 @@ function openDistributionDrilldown(detail) {
 }
 
 function openBreakdownDrilldown(record) {
-  state.distributionDrilldownOpen = true;
-  state.distributionDrilldownExpanded = false;
-  state.distributionDrilldownDetail = {
-    mode: "breakdown",
-    agentName: record.agentName,
-    weekEnding: record.weekEnding,
-    items: [
+  const focusItems = state.dashboardFocus === "all"
+    ? [
       {
         label: "Transfer",
         value: record.transferRateDisplay,
@@ -425,20 +442,62 @@ function openBreakdownDrilldown(record) {
         score: formatScore(record.attendanceScore),
       },
       {
-        label: "QA",
+        label: "Quality Assurance",
         value: record.qaPercentDisplay,
         score: formatScore(record.qaScore),
       },
       {
-        label: "Combined KPI total",
-        value: formatScore(
-          [record.transferScore, record.admitsScore, record.ahtScore, record.attendanceScore, record.qaScore]
-            .filter((value) => typeof value === "number" && !Number.isNaN(value))
-            .reduce((sum, value) => sum + value, 0)
-        ),
+        label: "Overall",
+        value: formatScore(record.overallScore),
         score: null,
       },
-    ],
+    ]
+    : state.dashboardFocus === "performance"
+    ? [
+      {
+        label: "Transfer",
+        value: record.transferRateDisplay,
+        score: formatScore(record.transferScore),
+      },
+      {
+        label: "Admits",
+        value: record.admitsCount === null || record.admitsCount === undefined ? "N/A" : Number(record.admitsCount).toFixed(0),
+        score: formatScore(record.admitsScore),
+      },
+      {
+        label: "AHT",
+        value: record.ahtDisplay,
+        score: formatScore(record.ahtScore),
+      },
+      {
+        label: "Performance",
+        value: formatScore(record.performanceScore),
+        score: null,
+      },
+    ]
+    : state.dashboardFocus === "attendance"
+      ? [
+        {
+          label: "Attendance",
+          value: record.attendancePercentDisplay,
+          score: formatScore(record.attendanceScore),
+        },
+      ]
+      : [
+        {
+          label: "Quality Assurance",
+          value: record.qaPercentDisplay,
+          score: formatScore(record.qaScore),
+        },
+      ];
+
+  state.distributionDrilldownOpen = true;
+  state.distributionDrilldownExpanded = false;
+  state.distributionDrilldownDetail = {
+    mode: "breakdown",
+    agentName: record.agentName,
+    weekEnding: record.weekEnding,
+    items: focusItems,
   };
   renderDistributionDrilldownContent();
   applyDistributionDrilldownState();
@@ -495,21 +554,6 @@ const cardMap = {
   },
 };
 
-const rawMetricMap = {
-  transferRate: document.querySelector("#avgTransferRateValue"),
-  admitsCount: document.querySelector("#avgAdmitsCountValue"),
-  aht: document.querySelector("#avgAhtValue"),
-  attendance: document.querySelector("#avgAttendanceValue"),
-  qa: document.querySelector("#avgQaValue"),
-  agents: document.querySelector("#avgAgentsValue"),
-  transferRateDelta: document.querySelector("#avgTransferRateDelta"),
-  admitsCountDelta: document.querySelector("#avgAdmitsCountDelta"),
-  ahtDelta: document.querySelector("#avgAhtDelta"),
-  attendanceDelta: document.querySelector("#avgAttendanceDelta"),
-  qaDelta: document.querySelector("#avgQaDelta"),
-  agentsDelta: document.querySelector("#avgAgentsDelta"),
-};
-
 function scoreClassName(score) {
   if (score === null || score === undefined || Number.isNaN(score)) return "score-na";
   return `score-${Math.max(1, Math.min(5, Math.round(score)))}`;
@@ -563,6 +607,24 @@ function getRankedKpis(summary) {
     .sort((left, right) => right.score - left.score || left.label.localeCompare(right.label));
 }
 
+function getFocusRankedKpis(summary) {
+  if (!summary) return [];
+  const scoped = state.dashboardFocus === "all"
+    ? KPI_DEFINITIONS
+    : state.dashboardFocus === "performance"
+    ? KPI_DEFINITIONS.filter((item) => ["transferScore", "admitsScore", "ahtScore"].includes(item.key))
+    : KPI_DEFINITIONS.filter((item) => item.key === (state.dashboardFocus === "attendance" ? "attendanceScore" : "qaScore"));
+
+  return scoped
+    .map((kpi) => ({
+      ...kpi,
+      score: summary[kpi.key],
+      rawText: kpi.raw(summary),
+    }))
+    .filter((item) => typeof item.score === "number" && !Number.isNaN(item.score))
+    .sort((left, right) => right.score - left.score || left.label.localeCompare(right.label));
+}
+
 function getSummaryMetrics(records) {
   if (!records.length) return null;
   return {
@@ -575,6 +637,11 @@ function getSummaryMetrics(records) {
     overallScore: averageField(records, "overallScore"),
     transferRatePercent: averageField(records, "transferRatePercent"),
     admitsCount: averageField(records, "admitsCount"),
+    firstTimeCaller: averageField(records, "firstTimeCaller"),
+    transferCount: averageField(records, "transferCount"),
+    inboundCalls: averageField(records, "inboundCalls"),
+    inboundMinutesSeconds: averageField(records, "inboundMinutesSeconds"),
+    holdTimeSeconds: averageField(records, "holdTimeSeconds"),
     ahtSeconds: averageField(records, "ahtSeconds"),
     attendancePercentValue: averageField(records, "attendancePercentValue"),
     qaPercentValue: averageField(records, "qaPercentValue"),
@@ -609,6 +676,11 @@ function getScopedWeeklyAverages(records) {
       overallScore: averageField(items, "overallScore"),
       transferRatePercent: averageField(items, "transferRatePercent"),
       admitsCount: averageField(items, "admitsCount"),
+      firstTimeCaller: averageField(items, "firstTimeCaller"),
+      transferCount: averageField(items, "transferCount"),
+      inboundCalls: averageField(items, "inboundCalls"),
+      inboundMinutesSeconds: averageField(items, "inboundMinutesSeconds"),
+      holdTimeSeconds: averageField(items, "holdTimeSeconds"),
       ahtSeconds: averageField(items, "ahtSeconds"),
       attendancePercentValue: averageField(items, "attendancePercentValue"),
       qaPercentValue: averageField(items, "qaPercentValue"),
@@ -634,6 +706,11 @@ function pickWeekSummary(filteredRecords, weeklyAverages) {
       overallScore: 0,
       transferRatePercent: null,
       admitsCount: null,
+      firstTimeCaller: null,
+      transferCount: null,
+      inboundCalls: null,
+      inboundMinutesSeconds: null,
+      holdTimeSeconds: null,
       ahtSeconds: null,
       attendancePercentValue: null,
       qaPercentValue: null,
@@ -678,7 +755,7 @@ function getComparisonWeeklyAverages(weeklyAverages) {
 function updateInsights(filteredRecords, weeklyAverages) {
   const selectedSummary = pickWeekSummary(filteredRecords, weeklyAverages);
   const comparisonWeeklyAverages = getComparisonWeeklyAverages(weeklyAverages);
-  const rankedKpis = getRankedKpis(selectedSummary);
+  const rankedKpis = getFocusRankedKpis(selectedSummary);
   const bestKpi = rankedKpis[0] || null;
   const weakestKpi = rankedKpis.at(-1) || null;
   const totalAgents = new Set(filteredRecords.map((record) => record.agentName)).size;
@@ -708,17 +785,24 @@ function updateInsights(filteredRecords, weeklyAverages) {
 
   const currentWeek = comparisonWeeklyAverages.at(-1) || null;
   const previousWeek = comparisonWeeklyAverages.length > 1 ? comparisonWeeklyAverages[0] : null;
+  const momentumKey = state.dashboardFocus === "all"
+    ? "overallScore"
+    : state.dashboardFocus === "performance"
+    ? "performanceScore"
+    : state.dashboardFocus === "attendance"
+      ? "attendanceScore"
+      : "qaScore";
   const overallDelta =
-    currentWeek && previousWeek ? Number(currentWeek.overallScore) - Number(previousWeek.overallScore) : null;
+    currentWeek && previousWeek ? Number(currentWeek[momentumKey]) - Number(previousWeek[momentumKey]) : null;
 
   elements.momentumInsightTitle.textContent =
     overallDelta === null || Number.isNaN(overallDelta)
       ? "No previous week for momentum"
-      : `Overall ${overallDelta >= 0 ? "up" : "down"} ${formatSignedDelta(overallDelta)}`;
+      : `${FOCUS_SCORING[state.dashboardFocus].title} ${overallDelta >= 0 ? "up" : "down"} ${formatSignedDelta(overallDelta)}`;
   elements.momentumInsightBody.textContent =
     overallDelta === null || Number.isNaN(overallDelta)
       ? `${selectedSummary.weekEnding || "Selected week"} has no earlier week available for comparison.`
-      : `${currentWeek.weekEnding} versus ${previousWeek.weekEnding} on weighted overall score.`;
+      : `${currentWeek.weekEnding} versus ${previousWeek.weekEnding} on ${FOCUS_SCORING[state.dashboardFocus].title.toLowerCase()} score.`;
 
   if (elements.mobileStatusMonth && elements.mobileStatusWeek && elements.mobileStatusScope) {
     elements.mobileStatusMonth.textContent = state.filters.month === "all" ? "All Months" : state.filters.month;
@@ -764,7 +848,7 @@ function updateAgentFocus(filteredRecords, weeklyAverages) {
   }
 
   const selectedSummary = pickWeekSummary(filteredRecords, weeklyAverages);
-  const rankedKpis = getRankedKpis(selectedSummary);
+  const rankedKpis = getFocusRankedKpis(selectedSummary);
   const bestKpi = rankedKpis[0] || null;
   const weakestKpi = rankedKpis.at(-1) || null;
   const comparisonWeeklyAverages = getComparisonWeeklyAverages(weeklyAverages);
@@ -790,7 +874,7 @@ function updateAgentFocus(filteredRecords, weeklyAverages) {
     : "No weakest KPI available for the selected view.";
 }
 
-function getMostImprovedAgents(records, comparisonWeeklyAverages, limit = 5) {
+function getMostImprovedAgents(records, comparisonWeeklyAverages, limit = 5, metricKey = "overallScore") {
   if (comparisonWeeklyAverages.length < 2) return [];
 
   const previousWeek = comparisonWeeklyAverages[0]?.weekEnding;
@@ -810,19 +894,19 @@ function getMostImprovedAgents(records, comparisonWeeklyAverages, limit = 5) {
       const previousRecord = previousByAgent.get(agentName);
       if (!previousRecord) return null;
       if (
-        typeof currentRecord.overallScore !== "number" ||
-        Number.isNaN(currentRecord.overallScore) ||
-        typeof previousRecord.overallScore !== "number" ||
-        Number.isNaN(previousRecord.overallScore)
+        typeof currentRecord[metricKey] !== "number" ||
+        Number.isNaN(currentRecord[metricKey]) ||
+        typeof previousRecord[metricKey] !== "number" ||
+        Number.isNaN(previousRecord[metricKey])
       ) {
         return null;
       }
 
       return {
         agentName,
-        delta: currentRecord.overallScore - previousRecord.overallScore,
-        currentOverallScore: currentRecord.overallScore,
-        previousOverallScore: previousRecord.overallScore,
+        delta: currentRecord[metricKey] - previousRecord[metricKey],
+        currentOverallScore: currentRecord[metricKey],
+        previousOverallScore: previousRecord[metricKey],
       };
     })
     .filter((record) => record && record.delta > 0)
@@ -864,61 +948,106 @@ function describeOverallFormula(summary) {
   return "Performance + Attendance only | QA pending";
 }
 
-function updateRawCards(metrics) {
-  if (!metrics) {
-    Object.values(rawMetricMap).forEach((element) => {
-      element.textContent = "--";
-    });
+function getRawMetricCards(metrics, currentSummary, previousSummary) {
+  if (!metrics) return [];
+
+  if (state.dashboardFocus === "all") {
+    return [
+      ["Average Transfer Rate", formatPercent(metrics.transferRatePercent), buildTextDelta(currentSummary?.transferRatePercent, previousSummary?.transferRatePercent, (value) => formatPercent(value))],
+      ["Average Admit Count", metrics.admitsCount === null || metrics.admitsCount === undefined ? "N/A" : metrics.admitsCount.toFixed(2), buildTextDelta(currentSummary?.admitsCount, previousSummary?.admitsCount, (value) => Number(value).toFixed(2))],
+      ["Average AHT", formatTimeFromSeconds(metrics.ahtSeconds), buildTextDelta(currentSummary?.ahtSeconds, previousSummary?.ahtSeconds, (value) => formatTimeFromSeconds(value))],
+      ["Average Attendance", formatPercent(metrics.attendancePercentValue), buildTextDelta(currentSummary?.attendancePercentValue, previousSummary?.attendancePercentValue, (value) => formatPercent(value))],
+      ["Average Quality Assurance", formatPercent(metrics.qaPercentValue), buildTextDelta(currentSummary?.qaPercentValue, previousSummary?.qaPercentValue, (value) => formatPercent(value))],
+      ["Agents in Scope", String(metrics.agentCount), buildTextDelta(currentSummary?.agentCount, previousSummary?.agentCount, (value) => `${Math.round(value)} agents`)],
+    ];
+  }
+
+  if (state.dashboardFocus === "performance") {
+    return [
+      ["Average Transfer Rate", formatPercent(metrics.transferRatePercent), buildTextDelta(currentSummary?.transferRatePercent, previousSummary?.transferRatePercent, (value) => formatPercent(value))],
+      ["Average Admit Count", metrics.admitsCount === null || metrics.admitsCount === undefined ? "N/A" : metrics.admitsCount.toFixed(2), buildTextDelta(currentSummary?.admitsCount, previousSummary?.admitsCount, (value) => Number(value).toFixed(2))],
+      ["Average AHT", formatTimeFromSeconds(metrics.ahtSeconds), buildTextDelta(currentSummary?.ahtSeconds, previousSummary?.ahtSeconds, (value) => formatTimeFromSeconds(value))],
+      ["Average Inbound Calls", metrics.inboundCalls === null || metrics.inboundCalls === undefined ? "N/A" : metrics.inboundCalls.toFixed(2), buildTextDelta(currentSummary?.inboundCalls, previousSummary?.inboundCalls, (value) => Number(value).toFixed(2))],
+      ["Agents in Scope", String(metrics.agentCount), buildTextDelta(currentSummary?.agentCount, previousSummary?.agentCount, (value) => `${Math.round(value)} agents`)],
+    ];
+  }
+
+  if (state.dashboardFocus === "attendance") {
+    return [
+      ["Average Attendance", formatPercent(metrics.attendancePercentValue), buildTextDelta(currentSummary?.attendancePercentValue, previousSummary?.attendancePercentValue, (value) => formatPercent(value))],
+      ["Attendance Score", formatScore(metrics.attendanceScore), buildTextDelta(currentSummary?.attendanceScore, previousSummary?.attendanceScore, (value) => formatScore(value))],
+      ["Agents in Scope", String(metrics.agentCount), buildTextDelta(currentSummary?.agentCount, previousSummary?.agentCount, (value) => `${Math.round(value)} agents`)],
+    ];
+  }
+
+  return [
+    ["Average QA", formatPercent(metrics.qaPercentValue), buildTextDelta(currentSummary?.qaPercentValue, previousSummary?.qaPercentValue, (value) => formatPercent(value))],
+    ["QA Score", formatScore(metrics.qaScore), buildTextDelta(currentSummary?.qaScore, previousSummary?.qaScore, (value) => formatScore(value))],
+    ["Agents in Scope", String(metrics.agentCount), buildTextDelta(currentSummary?.agentCount, previousSummary?.agentCount, (value) => `${Math.round(value)} agents`)],
+  ];
+}
+
+function describeSpreadGroup(records, metricKey, label, predicate) {
+  const matches = records
+    .filter((record) => typeof record[metricKey] === "number" && !Number.isNaN(record[metricKey]))
+    .filter((record) => predicate(Number(record[metricKey])))
+    .sort((left, right) => right[metricKey] - left[metricKey]);
+  const names = matches.map((record) => getSpreadDisplayName(record.agentName)).join(", ");
+  return {
+    label,
+    count: matches.length,
+    names: names || "No agents in this group",
+  };
+}
+
+function getSpreadDisplayName(agentName) {
+  if (!agentName) return "";
+  const parts = String(agentName).split(",");
+  if (parts.length < 2) return String(agentName).trim();
+  return parts.slice(1).join(",").trim() || String(agentName).trim();
+}
+
+function renderPerformerSpreadSummary(records, metricKey) {
+  if (!elements.performerSpreadSummary) return;
+  const scored = records.filter((record) => typeof record[metricKey] === "number" && !Number.isNaN(record[metricKey]));
+  if (!scored.length) {
+    elements.performerSpreadSummary.innerHTML = "";
     return;
   }
 
-  rawMetricMap.transferRate.textContent = formatPercent(metrics.transferRatePercent);
-  rawMetricMap.admitsCount.textContent =
-    metrics.admitsCount === null || metrics.admitsCount === undefined ? "N/A" : metrics.admitsCount.toFixed(2);
-  rawMetricMap.aht.textContent = formatTimeFromSeconds(metrics.ahtSeconds);
-  rawMetricMap.attendance.textContent = formatPercent(metrics.attendancePercentValue);
-  rawMetricMap.qa.textContent = formatPercent(metrics.qaPercentValue);
-  rawMetricMap.agents.textContent = String(metrics.agentCount);
+  const groups = [
+    describeSpreadGroup(scored, metricKey, "Top", (value) => value >= 4),
+    describeSpreadGroup(scored, metricKey, "Middle", (value) => value >= 3 && value < 4),
+    describeSpreadGroup(scored, metricKey, "Needs Support", (value) => value < 3),
+  ];
+
+  elements.performerSpreadSummary.innerHTML = groups.map((group) => `
+    <article class="performer-spread-card performer-spread-card-${group.label.toLowerCase().replace(/\s+/g, "-")}">
+      <span class="performer-spread-label">${group.label}</span>
+      <strong>${group.count}</strong>
+      <p>${group.names}</p>
+    </article>
+  `).join("");
 }
 
-function updateRawDeltas(currentSummary, previousSummary) {
-  rawMetricMap.transferRateDelta.textContent = buildTextDelta(
-    currentSummary?.transferRatePercent,
-    previousSummary?.transferRatePercent,
-    (value) => formatPercent(value)
-  );
-  rawMetricMap.admitsCountDelta.textContent = buildTextDelta(
-    currentSummary?.admitsCount,
-    previousSummary?.admitsCount,
-    (value) => Number(value).toFixed(2)
-  );
-  rawMetricMap.ahtDelta.textContent = buildTextDelta(
-    currentSummary?.ahtSeconds,
-    previousSummary?.ahtSeconds,
-    (value) => formatTimeFromSeconds(value)
-  );
-  rawMetricMap.attendanceDelta.textContent = buildTextDelta(
-    currentSummary?.attendancePercentValue,
-    previousSummary?.attendancePercentValue,
-    (value) => formatPercent(value)
-  );
-  rawMetricMap.qaDelta.textContent = buildTextDelta(
-    currentSummary?.qaPercentValue,
-    previousSummary?.qaPercentValue,
-    (value) => formatPercent(value)
-  );
-  rawMetricMap.agentsDelta.textContent = buildTextDelta(
-    currentSummary?.agentCount,
-    previousSummary?.agentCount,
-    (value) => `${Math.round(value)} agents`
-  );
+function renderRawMetricCards(metrics, currentSummary, previousSummary) {
+  const cards = getRawMetricCards(metrics, currentSummary, previousSummary);
+  elements.rawMetricsGrid.innerHTML = cards.map(([label, value, delta]) => `
+    <article class="raw-card card">
+      <span class="raw-label">${label}</span>
+      <strong>${value}</strong>
+      <p class="raw-delta">${delta}</p>
+    </article>
+  `).join("");
 }
 
 function updateSummaryCards(filteredRecords, weeklyAverages) {
   const metrics = getSummaryMetrics(filteredRecords);
-  updateRawCards(metrics);
 
   if (!metrics) {
+    if (elements.rawMetricsGrid) {
+      elements.rawMetricsGrid.innerHTML = "";
+    }
     Object.values(cardMap).forEach((card) => {
       card.value.textContent = "--";
       card.badge.textContent = "-";
@@ -932,7 +1061,7 @@ function updateSummaryCards(filteredRecords, weeklyAverages) {
   const currentWeekSummary = pickWeekSummary(filteredRecords, weeklyAverages);
   const currentIndex = weeklyAverages.findIndex((item) => item.weekEnding === currentWeekSummary.weekEnding);
   const previousWeekSummary = currentIndex > 0 ? weeklyAverages[currentIndex - 1] : null;
-  updateRawDeltas(currentWeekSummary, previousWeekSummary);
+  renderRawMetricCards(metrics, currentWeekSummary, previousWeekSummary);
 
   const rawText = {
     overall: `${describeOverallFormula(currentWeekSummary)} | Performance ${buildCurrentPreviousDetail("current", currentWeekSummary.performanceScore, previousWeekSummary?.performanceScore, formatScore)} | Attendance ${buildCurrentPreviousDetail("current", currentWeekSummary.attendanceScore, previousWeekSummary?.attendanceScore, formatScore)} | QA ${buildCurrentPreviousDetail("current", currentWeekSummary.qaScore, previousWeekSummary?.qaScore, formatScore)}`,
@@ -972,6 +1101,10 @@ function updateSummaryCards(filteredRecords, weeklyAverages) {
     rawText.qa = "QA data pending | Current: N/A | Previous: N/A";
   }
 
+  const heroIsPerformance = state.dashboardFocus === "performance";
+  const heroIsAll = state.dashboardFocus === "all";
+  elements.overallCardTitle.textContent = heroIsPerformance ? "Performance Score" : "Team Overall Score";
+
   [
     ["overall", "overallScore"],
     ["transfer", "transferScore"],
@@ -982,13 +1115,20 @@ function updateSummaryCards(filteredRecords, weeklyAverages) {
   ].forEach(([cardKey, metricKey]) => {
     const score = metrics[metricKey];
     const card = cardMap[cardKey];
-    card.value.textContent = formatScore(score);
+    const effectiveScore = cardKey === "overall" && heroIsPerformance ? metrics.performanceScore : score;
+    const effectiveCurrent = cardKey === "overall" && heroIsPerformance ? currentWeekSummary.performanceScore : currentWeekSummary[metricKey];
+    const effectivePrevious = cardKey === "overall" && heroIsPerformance ? previousWeekSummary?.performanceScore : previousWeekSummary?.[metricKey];
+    card.value.textContent = formatScore(effectiveScore);
     card.badge.textContent =
-      score === null || score === undefined || Number.isNaN(score) ? "N/A" : Math.round(score);
-    card.badge.className = `score-chip ${scoreClassName(score)}`;
+      effectiveScore === null || effectiveScore === undefined || Number.isNaN(effectiveScore) ? "N/A" : Math.round(effectiveScore);
+    card.badge.className = `score-chip ${scoreClassName(effectiveScore)}`;
     card.value.closest(".summary-card")?.setAttribute("data-kpi", cardKey);
-    card.raw.textContent = rawText[cardKey];
-    card.delta.innerHTML = buildDeltaMarkup(currentWeekSummary[metricKey], previousWeekSummary?.[metricKey]);
+    card.raw.textContent = cardKey === "overall" && heroIsPerformance
+      ? `Transfer ${buildCurrentPreviousDetail("current", currentWeekSummary.transferScore, previousWeekSummary?.transferScore, formatScore)} | Admits ${buildCurrentPreviousDetail("current", currentWeekSummary.admitsScore, previousWeekSummary?.admitsScore, formatScore)} | AHT ${buildCurrentPreviousDetail("current", currentWeekSummary.ahtScore, previousWeekSummary?.ahtScore, formatScore)}`
+      : cardKey === "overall" && heroIsAll
+        ? rawText.overall
+      : rawText[cardKey];
+    card.delta.innerHTML = buildDeltaMarkup(effectiveCurrent, effectivePrevious);
   });
 }
 
@@ -1021,7 +1161,9 @@ function updateCharts(filteredRecords, weeklyAverages, scopedRecords) {
     const selectedWeek = comparisonWeeklyAverages.at(-1)?.weekEnding || "Selected Week";
     const previousWeek = comparisonWeeklyAverages.length > 1 ? comparisonWeeklyAverages[0]?.weekEnding : "No previous week";
     const qaPending = !hasValidNumber(weekSummary.qaScore);
-    elements.comparisonTitle.textContent = "Selected week vs previous week";
+    elements.comparisonTitle.textContent = state.dashboardFocus === "all"
+      ? "Selected week vs previous week"
+      : `${FOCUS_SCORING[state.dashboardFocus].title} vs previous week`;
     elements.comparisonSubnote.textContent =
       comparisonWeeklyAverages.length > 1
         ? `${selectedWeek} vs ${previousWeek}.${qaPending ? " QA is pending and excluded from overall where missing." : ""}`
@@ -1032,14 +1174,14 @@ function updateCharts(filteredRecords, weeklyAverages, scopedRecords) {
     const qaPending = !hasValidNumber(weekSummary.qaScore);
     elements.rankingSubnote.textContent =
       state.filters.week !== "all"
-        ? `Top 5 for ${state.filters.week}.${qaPending ? " QA pending is excluded from overall where missing." : ""}`
-        : `Latest top 5 within ${state.filters.month === "all" ? "this view" : state.filters.month}.${qaPending ? " QA pending is excluded from overall where missing." : ""}`;
+        ? `${FOCUS_SCORING[state.dashboardFocus].title} spread for ${state.filters.week}. This shows where the team is clustering from top to trailing groups.${qaPending ? " QA pending is excluded from overall where missing." : ""}`
+        : `Latest ${FOCUS_SCORING[state.dashboardFocus].title.toLowerCase()} spread within ${state.filters.month === "all" ? "this view" : state.filters.month}. This shows where the team is clustering from top to trailing groups.${qaPending ? " QA pending is excluded from overall where missing." : ""}`;
   }
 
-  state.charts.trend = renderLineChart(elements.trendChart, state.charts.trend, weeklyAverages);
-  state.charts.weekScore = renderBarChart(elements.weekScoreChart, state.charts.weekScore, weekSummary);
+  state.charts.trend = renderLineChart(elements.trendChart, state.charts.trend, weeklyAverages, state.dashboardFocus);
+  state.charts.weekScore = renderBarChart(elements.weekScoreChart, state.charts.weekScore, weekSummary, state.dashboardFocus);
   state.charts.contribution = renderContributionChart(elements.contributionChart, state.charts.contribution, weekSummary);
-  state.charts.variance = renderVarianceChart(elements.varianceChart, state.charts.variance, comparisonWeeklyAverages);
+  state.charts.variance = renderVarianceChart(elements.varianceChart, state.charts.variance, comparisonWeeklyAverages, state.dashboardFocus);
   state.charts.transferDistribution = renderDistributionChart(
     elements.transferDistributionChart,
     state.charts.transferDistribution,
@@ -1080,33 +1222,47 @@ function updateCharts(filteredRecords, weeklyAverages, scopedRecords) {
     "QA Distribution",
     "#EC4899"
   );
-  renderRankingList(elements.rankingList, chartRecords);
-  state.charts.stacked = renderStackedBarChart(elements.stackedChart, state.charts.stacked, chartRecords, openBreakdownDrilldown);
+  state.charts.performerSpread = renderScoreSpreadChart(
+    elements.performerSpreadChart,
+    state.charts.performerSpread,
+    chartRecords,
+    {
+      scoreKey: FOCUS_SCORING[state.dashboardFocus].metricKey,
+      scoreLabel: FOCUS_SCORING[state.dashboardFocus].title,
+    }
+  );
+  renderPerformerSpreadSummary(chartRecords, FOCUS_SCORING[state.dashboardFocus].metricKey);
+  state.charts.stacked = renderStackedBarChart(elements.stackedChart, state.charts.stacked, chartRecords, openBreakdownDrilldown, state.dashboardFocus);
   state.charts.comparison = renderComparisonChart(
     elements.comparisonChart,
     state.charts.comparison,
-    comparisonWeeklyAverages
-  );
-  state.charts.bottom = renderTopBottomChart(elements.bottomAgentsChart, state.charts.bottom, getBottomPerformers(chartRecords), "Bottom 5 Overall Score");
-  state.charts.improved = renderImprovementChart(
-    elements.mostImprovedChart,
-    state.charts.improved,
-    getMostImprovedAgents(scopedRecords, comparisonWeeklyAverages)
+    comparisonWeeklyAverages,
+    state.dashboardFocus
   );
 }
 
 function handleRowToggle(rowKey) {
-  state.selectedRowKey = state.selectedRowKey === rowKey ? null : rowKey;
+  if (state.expandedRowKeys.has(rowKey)) {
+    state.expandedRowKeys.delete(rowKey);
+  } else {
+    state.expandedRowKeys.add(rowKey);
+  }
   updateTable(getFilteredRecords(state.dataset.records, state.filters));
 }
 
 function updateTable(filteredRecords) {
-  if (state.selectedRowKey && !filteredRecords.some((record) => record.key === state.selectedRowKey)) {
-    state.selectedRowKey = null;
-  }
-  initializeTable(elements.tableHeadRow, handleSortChange, state.sort);
-  renderTableSummary(elements.tableSummaryStrip, filteredRecords);
-  renderTable(elements.tableBody, sortRecords(filteredRecords, state.sort), state.selectedRowKey, handleRowToggle);
+  state.expandedRowKeys = new Set(
+    [...state.expandedRowKeys].filter((key) => filteredRecords.some((record) => record.key === key))
+  );
+  initializeTable(elements.tableHeadRow, handleSortChange, state.sort, state.dashboardFocus);
+  renderTableSummary(elements.tableSummaryStrip, filteredRecords, state.dashboardFocus);
+  renderTable(
+    elements.tableBody,
+    sortRecords(filteredRecords, state.sort),
+    state.expandedRowKeys,
+    handleRowToggle,
+    state.dashboardFocus
+  );
 }
 
 function updateStatus(filteredRecords) {
@@ -1127,6 +1283,32 @@ function updateLayoutVisibility() {
   elements.agentOnlySections.forEach((section) => {
     section.classList.toggle("is-hidden", !isAgentView);
   });
+
+  const focus = state.dashboardFocus;
+  elements.summaryCards.forEach((card) => {
+    const group = card.dataset.focusGroup;
+    const kpi = card.dataset.kpi;
+    const visible =
+      !group
+        ? true
+        : focus === "all"
+          ? true
+          : focus === "performance"
+          ? group === "performance"
+          : kpi === "overall" || group === focus;
+    card.classList.toggle("is-hidden", !visible);
+  });
+
+  elements.focusGroupedNodes.forEach((node) => {
+    const visible = focus === "all"
+      ? true
+      : focus === "performance"
+      ? node.dataset.focusGroup === "performance"
+      : node.dataset.focusGroup === focus;
+    node.classList.toggle("is-hidden", !visible);
+  });
+
+  elements.contributionCard?.classList.toggle("is-hidden", focus === "performance");
 }
 
 function updateDashboard() {
@@ -1149,6 +1331,85 @@ function updateDashboard() {
   updateTable(tableRecords);
   updateStatus(dashboardRecords);
   updateLayoutVisibility();
+}
+
+function applyDashboardFocus() {
+  const focusLabel = FOCUS_SCORING[state.dashboardFocus].title;
+  if (elements.appShell) {
+    elements.appShell.dataset.dashboardFocus = state.dashboardFocus;
+  }
+  elements.focusButtons.forEach((button) => {
+    const active = button.dataset.dashboardFocus === state.dashboardFocus;
+    button.classList.toggle("is-active", active);
+    button.setAttribute("aria-selected", String(active));
+  });
+
+  if (elements.trendSectionTitle) {
+    elements.trendSectionTitle.textContent = state.dashboardFocus === "all" ? "Weekly KPI trends" : state.dashboardFocus === "performance" ? "Weekly performance trends" : `Weekly ${focusLabel.toLowerCase()} trends`;
+  }
+  if (elements.snapshotSectionTitle) {
+    elements.snapshotSectionTitle.textContent = state.dashboardFocus === "all" ? "KPI score snapshot" : `${focusLabel} score snapshot`;
+  }
+  if (elements.varianceSectionTitle) {
+    elements.varianceSectionTitle.textContent = state.dashboardFocus === "all" ? "KPI variance" : `${focusLabel} variance`;
+  }
+  if (elements.rankingSectionTitle) {
+    elements.rankingSectionTitle.textContent = state.dashboardFocus === "all" ? "Overall score spread" : `${focusLabel} score spread`;
+  }
+  if (elements.bottomSectionTitle) {
+    elements.bottomSectionTitle.textContent = state.dashboardFocus === "all" ? "Bottom 5 agents" : `Bottom 5 ${focusLabel.toLowerCase()} agents`;
+  }
+  if (elements.improvedSectionTitle) {
+    elements.improvedSectionTitle.textContent = state.dashboardFocus === "all" ? "Most improved agents" : `Most improved ${focusLabel.toLowerCase()} agents`;
+  }
+  if (elements.breakdownSectionTitle) {
+    elements.breakdownSectionTitle.textContent = state.dashboardFocus === "all"
+      ? "KPI breakdown per agent"
+      : state.dashboardFocus === "performance"
+      ? "Performance KPI breakdown per agent"
+      : `${focusLabel} breakdown per agent`;
+  }
+  if (elements.distributionSectionTitle) {
+    elements.distributionSectionTitle.textContent = state.dashboardFocus === "all"
+      ? "Agent score distribution by KPI"
+      : state.dashboardFocus === "performance"
+      ? "Performance KPI score distribution"
+      : `${focusLabel} score distribution`;
+  }
+  if (elements.tableSectionTitle) {
+    elements.tableSectionTitle.textContent = state.dashboardFocus === "all"
+      ? "All agents KPI score table"
+      : state.dashboardFocus === "performance"
+      ? "Performance KPI score table"
+      : `${focusLabel} score table`;
+  }
+  if (elements.tableSectionSubnote) {
+    elements.tableSectionSubnote.textContent = state.dashboardFocus === "all"
+      ? "Balanced weekly view across performance, attendance, and quality assurance."
+      : state.dashboardFocus === "performance"
+      ? "Focused on transfer, admits, and AHT rows for the selected scope."
+      : state.dashboardFocus === "attendance"
+        ? "Focused on attendance score movement, with performance and overall kept for context."
+        : "Focused on quality assurance rows, with performance and overall kept for context.";
+  }
+  if (elements.tableRowHint) {
+    elements.tableRowHint.textContent = state.dashboardFocus === "performance"
+      ? "Click any row to view grouped Transfer, Admits, and AHT details."
+      : "Click any row to open the detailed KPI breakdown.";
+  }
+  if (elements.tableSearch) {
+    elements.tableSearch.placeholder = state.dashboardFocus === "all"
+      ? "Search agent, week, or KPI row"
+      : state.dashboardFocus === "performance"
+      ? "Search agent, week, or performance row"
+      : state.dashboardFocus === "attendance"
+        ? "Search agent, week, or attendance row"
+        : "Search agent, week, or quality row";
+  }
+
+  state.mobileDistributionPanel = FOCUS_SCORING[state.dashboardFocus].distribution;
+  applyMobileDistributionState();
+  updateDashboard();
 }
 
 function handleSortChange(key) {
@@ -1294,7 +1555,7 @@ function bindEvents() {
 
   elements.mobileMoreExport?.addEventListener("click", () => {
     const filteredRecords = sortRecords(getFilteredRecords(state.dataset.records, state.filters), state.sort);
-    exportRowsToCsv(filteredRecords);
+    exportRowsToCsv(filteredRecords, state.dashboardFocus);
     state.mobileMoreOpen = false;
     applyMobileMoreState();
     setMobileDockActive("more");
@@ -1362,13 +1623,35 @@ function bindEvents() {
     updateDashboard();
   });
 
+  elements.expandAllRowsButton?.addEventListener("click", () => {
+    const filteredRecords = sortRecords(getFilteredRecords(state.dataset.records, state.filters), state.sort);
+    state.expandedRowKeys = new Set(filteredRecords.map((record) => record.key));
+    updateTable(filteredRecords);
+  });
+
+  elements.collapseAllRowsButton?.addEventListener("click", () => {
+    state.expandedRowKeys = new Set();
+    updateTable(getFilteredRecords(state.dataset.records, state.filters));
+  });
+
   elements.resetFilters.addEventListener("click", () => {
     resetDashboardFilters();
   });
 
+  elements.focusButtons.forEach((button) => {
+    button.addEventListener("click", () => {
+      state.dashboardFocus = button.dataset.dashboardFocus || "all";
+      state.sort = {
+        key: FOCUS_SCORING[state.dashboardFocus].metricKey,
+        direction: "desc",
+      };
+      applyDashboardFocus();
+    });
+  });
+
   elements.exportCsvButton.addEventListener("click", () => {
     const filteredRecords = sortRecords(getFilteredRecords(state.dataset.records, state.filters), state.sort);
-    exportRowsToCsv(filteredRecords);
+    exportRowsToCsv(filteredRecords, state.dashboardFocus);
   });
 }
 
@@ -1399,7 +1682,7 @@ async function init() {
     applyMobileDistributionState();
     applyFloatingLegendState();
     applyDistributionDrilldownState();
-    updateDashboard();
+    applyDashboardFocus();
   } catch (error) {
     state.initialized = false;
     console.error(error);

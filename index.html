@@ -62,7 +62,7 @@
 
         <nav class="sidebar-nav" aria-label="Dashboard sections">
           <button class="nav-item is-active" data-target="tableSection" type="button">Table</button>
-          <button class="nav-item" data-target="overviewSection" type="button">Overview</button>
+          <button class="nav-item" data-target="summaryCards" type="button">Overview</button>
           <button class="nav-item" data-target="trendsSection" type="button">Trends</button>
           <button class="nav-item" data-target="agentsSection" type="button">Agents</button>
         </nav>
@@ -110,7 +110,7 @@
             </div>
           </div>
           <div class="legend-kpi legend-qa">
-            <strong>QA</strong>
+            <strong>Quality Assurance</strong>
             <div class="legend-scale-row">
               <span class="score-pill score-1">1</span><span>below 95%</span>
               <span class="score-pill score-2">2</span><span>95% to 97%</span>
@@ -150,6 +150,12 @@
             <div class="header-brand-copy">
               <span class="header-brand-kicker">KPI Dashboard</span>
               <p>Weekly scorecards with team-lead ready insights.</p>
+              <div class="dashboard-focus-switch" role="tablist" aria-label="Dashboard KPI focus">
+                <button class="dashboard-focus-button" data-dashboard-focus="all" type="button" role="tab" aria-selected="false"><span class="focus-full">All</span><span class="focus-short">All</span></button>
+                <button class="dashboard-focus-button is-active" data-dashboard-focus="performance" type="button" role="tab" aria-selected="true"><span class="focus-full">Performance</span><span class="focus-short">Perf</span></button>
+                <button class="dashboard-focus-button" data-dashboard-focus="attendance" type="button" role="tab" aria-selected="false"><span class="focus-full">Attendance</span><span class="focus-short">Attend</span></button>
+                <button class="dashboard-focus-button" data-dashboard-focus="qa" type="button" role="tab" aria-selected="false"><span class="focus-full">Quality Assurance</span><span class="focus-short">Quality</span></button>
+              </div>
             </div>
           </div>
           <div class="header-meta">
@@ -230,9 +236,6 @@
               <p class="eyebrow">Quick Filters</p>
               <h3>Filter by month, week, and agent</h3>
             </div>
-            <button id="resetFilters" class="primary-button top-reset-button" type="button">
-              Reset Filters
-            </button>
           </div>
           <div class="top-filters-mobile-toggle">
             <button id="filtersCollapseToggle" class="table-collapse-button" type="button" aria-expanded="false" aria-controls="filtersContentArea">
@@ -253,51 +256,11 @@
                 <span>Agent</span>
                 <select id="agentFilter"></select>
               </label>
-              <div class="comparison-note">
-                <span class="comparison-note-label">Comparison</span>
-                <p>Week-over-week charts automatically compare the selected week against the previous available week.</p>
+              <div class="top-filter-action">
+                <button id="resetFilters" class="primary-button top-reset-button" type="button">
+                  Reset Filters
+                </button>
               </div>
-            </div>
-          </div>
-        </section>
-
-        <section class="table-card card" id="tableSection">
-          <div class="table-header">
-            <div>
-              <p class="eyebrow">Team Detail</p>
-              <h3>All agents KPI score table</h3>
-            </div>
-            <div class="table-actions">
-              <label class="search-field table-search" for="tableSearch">
-                <span>Search agent or week</span>
-                <input
-                  id="tableSearch"
-                  name="tableSearch"
-                  type="search"
-                  placeholder="Type to filter the table"
-                />
-              </label>
-              <button id="exportCsvButton" class="primary-button" type="button">
-                Export CSV
-              </button>
-            </div>
-          </div>
-          <div class="table-mobile-heading">
-            <button id="tableCollapseToggle" class="table-collapse-button" type="button" aria-expanded="true" aria-controls="tableContentArea">
-              Collapse Table
-            </button>
-          </div>
-
-          <div class="table-content-area" id="tableContentArea">
-            <div class="table-summary-strip" id="tableSummaryStrip"></div>
-
-            <div class="table-wrap">
-              <table>
-                <thead>
-                  <tr id="tableHeadRow"></tr>
-                </thead>
-                <tbody id="tableBody"></tbody>
-              </table>
             </div>
           </div>
         </section>
@@ -328,15 +291,15 @@
         <section class="summary-grid" id="summaryCards">
           <article class="summary-card card" data-kpi="overall">
             <div class="card-topline">
-              <span>Team Overall Score</span>
+              <span id="overallCardTitle">Performance Score</span>
               <span class="score-chip" id="overallCardBadge">-</span>
             </div>
             <strong id="overallScoreValue">--</strong>
-            <p class="summary-subtext" id="overallScoreRaw">Performance 50% + Attendance 25% + QA 25%</p>
+            <p class="summary-subtext" id="overallScoreRaw">Transfer + Admits + AHT</p>
             <p id="overallScoreDelta">Week-over-week pending</p>
           </article>
 
-          <article class="summary-card card" data-kpi="transfer">
+          <article class="summary-card card" data-kpi="transfer" data-focus-group="performance">
             <div class="card-topline">
               <span>Transfer Score</span>
               <span class="score-chip" id="transferCardBadge">-</span>
@@ -346,7 +309,7 @@
             <p id="transferScoreDelta">Week-over-week pending</p>
           </article>
 
-          <article class="summary-card card" data-kpi="admits">
+          <article class="summary-card card" data-kpi="admits" data-focus-group="performance">
             <div class="card-topline">
               <span>Admits Score</span>
               <span class="score-chip" id="admitsCardBadge">-</span>
@@ -356,7 +319,7 @@
             <p id="admitsScoreDelta">Week-over-week pending</p>
           </article>
 
-          <article class="summary-card card" data-kpi="aht">
+          <article class="summary-card card" data-kpi="aht" data-focus-group="performance">
             <div class="card-topline">
               <span>AHT Score</span>
               <span class="score-chip" id="ahtCardBadge">-</span>
@@ -366,7 +329,7 @@
             <p id="ahtScoreDelta">Week-over-week pending</p>
           </article>
 
-          <article class="summary-card card" data-kpi="attendance">
+          <article class="summary-card card" data-kpi="attendance" data-focus-group="attendance">
             <div class="card-topline">
               <span>Attendance Score</span>
               <span class="score-chip" id="attendanceCardBadge">-</span>
@@ -376,48 +339,70 @@
             <p id="attendanceScoreDelta">Week-over-week pending</p>
           </article>
 
-          <article class="summary-card card" data-kpi="qa">
+          <article class="summary-card card" data-kpi="qa" data-focus-group="qa">
             <div class="card-topline">
-              <span>QA Score</span>
+              <span>Quality Assurance Score</span>
               <span class="score-chip" id="qaCardBadge">-</span>
             </div>
             <strong id="qaScoreValue">--</strong>
-            <p class="summary-subtext" id="qaScoreRaw">QA percent pending</p>
+            <p class="summary-subtext" id="qaScoreRaw">Quality assurance percent pending</p>
             <p id="qaScoreDelta">Week-over-week pending</p>
           </article>
         </section>
 
         <section class="raw-grid" id="monthlySection">
-          <article class="raw-card card">
-            <span class="raw-label">Average Transfer Rate</span>
-            <strong id="avgTransferRateValue">--</strong>
-            <p class="raw-delta" id="avgTransferRateDelta">Vs previous week pending</p>
-          </article>
-          <article class="raw-card card">
-            <span class="raw-label">Average Admits Count</span>
-            <strong id="avgAdmitsCountValue">--</strong>
-            <p class="raw-delta" id="avgAdmitsCountDelta">Vs previous week pending</p>
-          </article>
-          <article class="raw-card card">
-            <span class="raw-label">Average AHT</span>
-            <strong id="avgAhtValue">--</strong>
-            <p class="raw-delta" id="avgAhtDelta">Vs previous week pending</p>
-          </article>
-          <article class="raw-card card">
-            <span class="raw-label">Average Attendance</span>
-            <strong id="avgAttendanceValue">--</strong>
-            <p class="raw-delta" id="avgAttendanceDelta">Vs previous week pending</p>
-          </article>
-          <article class="raw-card card">
-            <span class="raw-label">Average QA</span>
-            <strong id="avgQaValue">--</strong>
-            <p class="raw-delta" id="avgQaDelta">Vs previous week pending</p>
-          </article>
-          <article class="raw-card card">
-            <span class="raw-label">Agents in Scope</span>
-            <strong id="avgAgentsValue">--</strong>
-            <p class="raw-delta" id="avgAgentsDelta">Vs previous week pending</p>
-          </article>
+          <div id="rawMetricsGrid"></div>
+        </section>
+
+        <section class="table-card card" id="tableSection">
+          <div class="table-header">
+            <div>
+              <p class="eyebrow">Team Detail</p>
+              <h3 id="tableSectionTitle">All agents KPI score table</h3>
+              <p class="table-section-subnote" id="tableSectionSubnote">
+                Focused on transfer, admits, and AHT rows for the selected scope.
+              </p>
+              <p class="table-row-hint" id="tableRowHint">Click any row to open the detailed KPI breakdown.</p>
+            </div>
+            <div class="table-actions">
+              <label class="search-field table-search" for="tableSearch">
+                <span>Search agent or week</span>
+                <input
+                  id="tableSearch"
+                  name="tableSearch"
+                  type="search"
+                  placeholder="Type to filter the table"
+                />
+              </label>
+              <button id="exportCsvButton" class="primary-button" type="button">
+                Export CSV
+              </button>
+              <button id="expandAllRowsButton" class="ghost-button table-secondary-button" type="button">
+                Expand All
+              </button>
+              <button id="collapseAllRowsButton" class="ghost-button table-secondary-button" type="button">
+                Collapse All
+              </button>
+            </div>
+          </div>
+          <div class="table-mobile-heading">
+            <button id="tableCollapseToggle" class="table-collapse-button" type="button" aria-expanded="true" aria-controls="tableContentArea">
+              Collapse Table
+            </button>
+          </div>
+
+          <div class="table-content-area" id="tableContentArea">
+            <div class="table-summary-strip" id="tableSummaryStrip"></div>
+
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr id="tableHeadRow"></tr>
+                </thead>
+                <tbody id="tableBody"></tbody>
+              </table>
+            </div>
+          </div>
         </section>
 
         <section class="agent-focus-grid is-hidden" id="agentFocusSection" data-scope="agent-only">
@@ -448,7 +433,7 @@
             <div class="section-heading">
               <div>
                 <p class="eyebrow">Trend Analysis</p>
-                <h3>Weekly KPI trends</h3>
+                <h3 id="trendSectionTitle">Weekly KPI trends</h3>
               </div>
             </div>
             <canvas id="trendChart" aria-label="Weekly KPI trends" role="img"></canvas>
@@ -457,17 +442,17 @@
 
         <section class="insight-grid" id="snapshotSection">
 
-          <article class="chart-card card">
+          <article class="chart-card card" id="snapshotCard">
             <div class="section-heading">
               <div>
                 <p class="eyebrow">Selected Week</p>
-                <h3>KPI score snapshot</h3>
+                <h3 id="snapshotSectionTitle">KPI score snapshot</h3>
               </div>
             </div>
             <canvas id="weekScoreChart" aria-label="Selected week KPI scores" role="img"></canvas>
           </article>
 
-          <article class="chart-card card">
+          <article class="chart-card card" id="contributionCard">
             <div class="section-heading">
               <div>
                 <p class="eyebrow">Weighted Mix</p>
@@ -481,7 +466,7 @@
             <div class="section-heading">
               <div>
                 <p class="eyebrow">Variance</p>
-                <h3>KPI variance</h3>
+                <h3 id="varianceSectionTitle">KPI variance</h3>
               </div>
             </div>
             <canvas id="varianceChart" aria-label="KPI variance chart" role="img"></canvas>
@@ -499,35 +484,17 @@
           </article>
         </section>
 
-        <section class="performer-grid" id="performersSection" data-scope="team-only">
-          <article class="chart-card card" id="agentsSection" data-scope="team-only">
+        <section class="content-grid" id="performersSection" data-scope="team-only">
+          <article class="chart-card card chart-span-wide" id="agentsSection" data-scope="team-only">
             <div class="section-heading">
               <div>
-                <p class="eyebrow">Ranking</p>
-                <h3>Top 5 agent overall score ranking</h3>
-                <p class="chart-subnote" id="rankingSubnote">Showing the highest overall scores for the active selection.</p>
+                <p class="eyebrow">Spread</p>
+                <h3 id="rankingSectionTitle">Performance score spread</h3>
+                <p class="chart-subnote" id="rankingSubnote">Showing where the team is clustered across low, middle, and top score bands.</p>
               </div>
             </div>
-            <div id="rankingList" class="ranking-list" aria-label="Agent overall score ranking" role="list"></div>
-          </article>
-          <article class="chart-card card">
-            <div class="section-heading">
-              <div>
-                <p class="eyebrow">Watchlist</p>
-                <h3>Bottom 5 agents</h3>
-              </div>
-            </div>
-            <canvas id="bottomAgentsChart" aria-label="Bottom 5 agents" role="img"></canvas>
-          </article>
-
-          <article class="chart-card card">
-            <div class="section-heading">
-              <div>
-                <p class="eyebrow">Momentum</p>
-                <h3>Most improved agents</h3>
-              </div>
-            </div>
-            <canvas id="mostImprovedChart" aria-label="Most improved agents" role="img"></canvas>
+            <canvas id="performerSpreadChart" aria-label="Agent score spread" role="img"></canvas>
+            <div class="performer-spread-summary" id="performerSpreadSummary"></div>
           </article>
         </section>
 
@@ -536,7 +503,7 @@
             <div class="section-heading">
               <div>
                 <p class="eyebrow">Breakdown</p>
-                <h3>KPI breakdown per agent</h3>
+                <h3 id="breakdownSectionTitle">KPI breakdown per agent</h3>
               </div>
             </div>
             <canvas id="stackedChart" aria-label="KPI breakdown per agent" role="img"></canvas>
@@ -548,35 +515,35 @@
             <div class="section-heading">
               <div>
                 <p class="eyebrow">Distribution</p>
-                <h3>Agent score distribution by KPI</h3>
+                <h3 id="distributionSectionTitle">Agent score distribution by KPI</h3>
               </div>
             </div>
             <div class="distribution-mobile-nav" aria-label="Distribution KPI selector">
-              <button class="distribution-mobile-chip is-active" data-distribution-panel="transfer" type="button"><span class="chip-full">Transfer</span><span class="chip-short">TR</span></button>
-              <button class="distribution-mobile-chip" data-distribution-panel="admits" type="button"><span class="chip-full">Admits</span><span class="chip-short">AD</span></button>
-              <button class="distribution-mobile-chip" data-distribution-panel="aht" type="button"><span class="chip-full">AHT</span><span class="chip-short">AHT</span></button>
-              <button class="distribution-mobile-chip" data-distribution-panel="attendance" type="button"><span class="chip-full">Attendance</span><span class="chip-short">ATT</span></button>
-              <button class="distribution-mobile-chip" data-distribution-panel="qa" type="button"><span class="chip-full">QA</span><span class="chip-short">QA</span></button>
+              <button class="distribution-mobile-chip is-active" data-distribution-panel="transfer" data-focus-group="performance" type="button"><span class="chip-full">Transfer</span><span class="chip-short">TR</span></button>
+              <button class="distribution-mobile-chip" data-distribution-panel="admits" data-focus-group="performance" type="button"><span class="chip-full">Admits</span><span class="chip-short">AD</span></button>
+              <button class="distribution-mobile-chip" data-distribution-panel="aht" data-focus-group="performance" type="button"><span class="chip-full">AHT</span><span class="chip-short">AHT</span></button>
+              <button class="distribution-mobile-chip" data-distribution-panel="attendance" data-focus-group="attendance" type="button"><span class="chip-full">Attendance</span><span class="chip-short">ATT</span></button>
+              <button class="distribution-mobile-chip" data-distribution-panel="qa" data-focus-group="qa" type="button"><span class="chip-full">QA</span><span class="chip-short">QA</span></button>
             </div>
             <div class="distribution-grid">
-              <div class="distribution-item distribution-panel distribution-panel-transfer" data-distribution-item="transfer">
+              <div class="distribution-item distribution-panel distribution-panel-transfer" data-distribution-item="transfer" data-focus-group="performance">
                 <p class="distribution-title distribution-transfer">Transfer</p>
                 <canvas id="transferDistributionChart" aria-label="Transfer distribution" role="img"></canvas>
               </div>
-              <div class="distribution-item distribution-panel distribution-panel-admits" data-distribution-item="admits">
+              <div class="distribution-item distribution-panel distribution-panel-admits" data-distribution-item="admits" data-focus-group="performance">
                 <p class="distribution-title distribution-admits">Admits</p>
                 <canvas id="admitsDistributionChart" aria-label="Admits distribution" role="img"></canvas>
               </div>
-              <div class="distribution-item distribution-panel distribution-panel-aht" data-distribution-item="aht">
+              <div class="distribution-item distribution-panel distribution-panel-aht" data-distribution-item="aht" data-focus-group="performance">
                 <p class="distribution-title distribution-aht">AHT</p>
                 <canvas id="ahtDistributionChart" aria-label="AHT distribution" role="img"></canvas>
               </div>
-              <div class="distribution-item distribution-panel distribution-panel-attendance" data-distribution-item="attendance">
+              <div class="distribution-item distribution-panel distribution-panel-attendance" data-distribution-item="attendance" data-focus-group="attendance">
                 <p class="distribution-title distribution-attendance">Attendance</p>
                 <canvas id="attendanceDistributionChart" aria-label="Attendance distribution" role="img"></canvas>
               </div>
-              <div class="distribution-item distribution-panel distribution-panel-qa" data-distribution-item="qa">
-                <p class="distribution-title distribution-qa">QA</p>
+              <div class="distribution-item distribution-panel distribution-panel-qa" data-distribution-item="qa" data-focus-group="qa">
+                <p class="distribution-title distribution-qa">Quality Assurance</p>
                 <canvas id="qaDistributionChart" aria-label="QA distribution" role="img"></canvas>
               </div>
             </div>
