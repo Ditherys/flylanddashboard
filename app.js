@@ -738,23 +738,35 @@ function pickWeekSummary(filteredRecords, weeklyAverages) {
   return weeklyAverages.at(-1);
 }
 
-function getComparisonWeeklyAverages(weeklyAverages) {
+function getComparisonWeeklyAverages(weeklyAverages, selectedWeekEnding) {
   if (!weeklyAverages.length) return [];
-  if (weeklyAverages.length === 1) return weeklyAverages;
 
-  if (state.filters.week !== "all") {
-    const selectedIndex = weeklyAverages.findIndex((item) => item.weekEnding === state.filters.week);
-    if (selectedIndex === -1) return weeklyAverages.slice(-2);
-    if (selectedIndex === 0) return [weeklyAverages[0]];
-    return [weeklyAverages[selectedIndex - 1], weeklyAverages[selectedIndex]];
-  }
+  const comparisonRecords = getFilteredRecords(state.dataset.records, {
+    ...state.filters,
+    month: "all",
+    week: "all",
+    search: "",
+  });
+  const comparisonPool = getScopedWeeklyAverages(comparisonRecords);
+  if (!comparisonPool.length) return weeklyAverages;
+  if (comparisonPool.length === 1) return comparisonPool;
 
-  return weeklyAverages.slice(-2);
+  const resolvedSelectedWeek =
+    selectedWeekEnding ||
+    (state.filters.week !== "all" ? state.filters.week : weeklyAverages.at(-1)?.weekEnding) ||
+    comparisonPool.at(-1)?.weekEnding;
+
+  const selectedEntry = comparisonPool.find((item) => item.weekEnding === resolvedSelectedWeek);
+  if (!selectedEntry?.weekDate) return comparisonPool.slice(-2);
+
+  const eligibleWeeks = comparisonPool.filter((item) => (item.weekDate?.getTime() ?? 0) <= selectedEntry.weekDate.getTime());
+  if (!eligibleWeeks.length) return comparisonPool.slice(-2);
+  return eligibleWeeks.slice(-2);
 }
 
 function updateInsights(filteredRecords, weeklyAverages) {
   const selectedSummary = pickWeekSummary(filteredRecords, weeklyAverages);
-  const comparisonWeeklyAverages = getComparisonWeeklyAverages(weeklyAverages);
+  const comparisonWeeklyAverages = getComparisonWeeklyAverages(weeklyAverages, selectedSummary.weekEnding);
   const rankedKpis = getFocusRankedKpis(selectedSummary);
   const bestKpi = rankedKpis[0] || null;
   const weakestKpi = rankedKpis.at(-1) || null;
@@ -851,7 +863,7 @@ function updateAgentFocus(filteredRecords, weeklyAverages) {
   const rankedKpis = getFocusRankedKpis(selectedSummary);
   const bestKpi = rankedKpis[0] || null;
   const weakestKpi = rankedKpis.at(-1) || null;
-  const comparisonWeeklyAverages = getComparisonWeeklyAverages(weeklyAverages);
+  const comparisonWeeklyAverages = getComparisonWeeklyAverages(weeklyAverages, selectedSummary.weekEnding);
   const previousWeek = comparisonWeeklyAverages.length > 1 ? comparisonWeeklyAverages[0] : null;
   const currentWeek = comparisonWeeklyAverages.at(-1) || null;
   const overallDelta =
@@ -1059,8 +1071,8 @@ function updateSummaryCards(filteredRecords, weeklyAverages) {
   }
 
   const currentWeekSummary = pickWeekSummary(filteredRecords, weeklyAverages);
-  const currentIndex = weeklyAverages.findIndex((item) => item.weekEnding === currentWeekSummary.weekEnding);
-  const previousWeekSummary = currentIndex > 0 ? weeklyAverages[currentIndex - 1] : null;
+  const comparisonWeeklyAverages = getComparisonWeeklyAverages(weeklyAverages, currentWeekSummary.weekEnding);
+  const previousWeekSummary = comparisonWeeklyAverages.length > 1 ? comparisonWeeklyAverages[0] : null;
   renderRawMetricCards(metrics, currentWeekSummary, previousWeekSummary);
 
   const rawText = {
@@ -1155,7 +1167,7 @@ function updateCharts(filteredRecords, weeklyAverages, scopedRecords) {
       ? filteredRecords.filter((record) => record.weekEnding === weekSummary.weekEnding)
       : filteredRecords;
 
-  const comparisonWeeklyAverages = getComparisonWeeklyAverages(weeklyAverages);
+  const comparisonWeeklyAverages = getComparisonWeeklyAverages(weeklyAverages, weekSummary.weekEnding);
 
   if (elements.comparisonTitle && elements.comparisonSubnote) {
     const selectedWeek = comparisonWeeklyAverages.at(-1)?.weekEnding || "Selected Week";

@@ -100,11 +100,14 @@ export function calculateAHTScore(ahtSeconds) {
 }
 
 export function calculateAttendanceScore(attendancePercentRaw) {
-  if (attendancePercentRaw === null || attendancePercentRaw === undefined || attendancePercentRaw === "") {
+  if (attendancePercentRaw === null || attendancePercentRaw === undefined) {
+    return null;
+  }
+  if (attendancePercentRaw === "") {
     return 4;
   }
   const attendancePercent = safeNumber(attendancePercentRaw);
-  if (attendancePercent === null) return 4;
+  if (attendancePercent === null) return null;
   if (attendancePercent >= 100) return 5;
   if (attendancePercent >= 95) return 3;
   if (attendancePercent >= 90) return 2;
