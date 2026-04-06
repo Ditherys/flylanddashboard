@@ -764,6 +764,31 @@ function getComparisonWeeklyAverages(weeklyAverages, selectedWeekEnding) {
   return eligibleWeeks.slice(-2);
 }
 
+function getTrendWeeklyAverages(weeklyAverages, selectedWeekEnding) {
+  if (!weeklyAverages.length) return [];
+
+  const trendRecords = getFilteredRecords(state.dataset.records, {
+    ...state.filters,
+    month: "all",
+    week: "all",
+    search: "",
+  });
+  const trendPool = getScopedWeeklyAverages(trendRecords);
+  if (!trendPool.length) return weeklyAverages;
+
+  const resolvedSelectedWeek =
+    selectedWeekEnding ||
+    (state.filters.week !== "all" ? state.filters.week : weeklyAverages.at(-1)?.weekEnding) ||
+    trendPool.at(-1)?.weekEnding;
+
+  const selectedEntry = trendPool.find((item) => item.weekEnding === resolvedSelectedWeek);
+  if (!selectedEntry?.weekDate) return trendPool.slice(-6);
+
+  const eligibleWeeks = trendPool.filter((item) => (item.weekDate?.getTime() ?? 0) <= selectedEntry.weekDate.getTime());
+  if (!eligibleWeeks.length) return trendPool.slice(-6);
+  return eligibleWeeks.slice(-6);
+}
+
 function updateInsights(filteredRecords, weeklyAverages) {
   const selectedSummary = pickWeekSummary(filteredRecords, weeklyAverages);
   const comparisonWeeklyAverages = getComparisonWeeklyAverages(weeklyAverages, selectedSummary.weekEnding);
@@ -1149,7 +1174,7 @@ function syncFilterOptions() {
 
   const weekOptions = getAvailableWeeks(state.dataset.records, state.filters.month);
   populateSelect(elements.weekFilter, weekOptions, "All Weeks");
-  if (!weekOptions.includes(state.filters.week)) state.filters.week = "all";
+  if (!weekOptions.includes(state.filters.week)) state.filters.week = weekOptions.at(-1) || "all";
 
   const agentOptions = getAvailableAgents(state.dataset.records, state.filters.month, state.filters.week);
   populateSelect(elements.agentFilter, agentOptions, "All Agents");
@@ -1160,7 +1185,7 @@ function syncFilterOptions() {
   elements.agentFilter.value = state.filters.agent;
 }
 
-function updateCharts(filteredRecords, weeklyAverages, scopedRecords) {
+function updateCharts(filteredRecords, weeklyAverages, scopedRecords, trendWeeklyAverages = weeklyAverages) {
   const weekSummary = pickWeekSummary(filteredRecords, weeklyAverages);
   const chartRecords =
     state.filters.week === "all"
@@ -1190,7 +1215,7 @@ function updateCharts(filteredRecords, weeklyAverages, scopedRecords) {
         : `Latest ${FOCUS_SCORING[state.dashboardFocus].title.toLowerCase()} spread within ${state.filters.month === "all" ? "this view" : state.filters.month}. This shows where the team is clustering from top to trailing groups.${qaPending ? " QA pending is excluded from overall where missing." : ""}`;
   }
 
-  state.charts.trend = renderLineChart(elements.trendChart, state.charts.trend, weeklyAverages, state.dashboardFocus);
+  state.charts.trend = renderLineChart(elements.trendChart, state.charts.trend, trendWeeklyAverages, state.dashboardFocus);
   state.charts.weekScore = renderBarChart(elements.weekScoreChart, state.charts.weekScore, weekSummary, state.dashboardFocus);
   state.charts.contribution = renderContributionChart(elements.contributionChart, state.charts.contribution, weekSummary);
   state.charts.variance = renderVarianceChart(elements.varianceChart, state.charts.variance, comparisonWeeklyAverages, state.dashboardFocus);
@@ -1332,6 +1357,8 @@ function updateDashboard() {
     search: "",
   });
   const weeklyAverages = getScopedWeeklyAverages(trendRecords);
+  const selectedSummary = pickWeekSummary(dashboardRecords, weeklyAverages);
+  const trendWeeklyAverages = getTrendWeeklyAverages(weeklyAverages, selectedSummary.weekEnding);
 
   state.distributionDrilldownOpen = false;
   applyDistributionDrilldownState();
@@ -1339,7 +1366,7 @@ function updateDashboard() {
   updateInsights(dashboardRecords, weeklyAverages);
   updateSummaryCards(dashboardRecords, weeklyAverages);
   updateAgentFocus(dashboardRecords, weeklyAverages);
-  updateCharts(dashboardRecords, weeklyAverages, trendRecords);
+  updateCharts(dashboardRecords, weeklyAverages, trendRecords, trendWeeklyAverages);
   updateTable(tableRecords);
   updateStatus(dashboardRecords);
   updateLayoutVisibility();
