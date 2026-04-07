@@ -670,6 +670,10 @@ function getLatestRealtimeWeek() {
   return state.realtimeDataset?.weekOptions?.at(-1) || "all";
 }
 
+function shouldShowRealtimeLastUpdated() {
+  return isRealtimeFocus() && state.filters.week === getLatestRealtimeWeek();
+}
+
 function getRankedKpis(summary) {
   if (!summary) return [];
   return KPI_DEFINITIONS
@@ -1414,22 +1418,27 @@ function handleRowToggle(rowKey) {
 }
 
 function updateTable(filteredRecords) {
+  const tableOptions = {
+    showLastUpdated: shouldShowRealtimeLastUpdated(),
+  };
   state.expandedRowKeys = new Set(
     [...state.expandedRowKeys].filter((key) => filteredRecords.some((record) => record.key === key))
   );
-  initializeTable(elements.tableHeadRow, handleSortChange, state.sort, state.dashboardFocus);
+  initializeTable(elements.tableHeadRow, handleSortChange, state.sort, state.dashboardFocus, tableOptions);
   renderTableSummary(elements.tableSummaryStrip, filteredRecords, state.dashboardFocus);
   renderTable(
     elements.tableBody,
     sortRecords(filteredRecords, state.sort),
     state.expandedRowKeys,
     handleRowToggle,
-    state.dashboardFocus
+    state.dashboardFocus,
+    tableOptions
   );
 }
 
 function updateStatus(filteredRecords) {
   if (isRealtimeFocus()) {
+    const showLastUpdated = shouldShowRealtimeLastUpdated();
     const totalAgents = new Set(filteredRecords.map((record) => record.agentName)).size;
     const totalDates = new Set(filteredRecords.map((record) => record.weekEnding)).size;
     const latestUpdated = [...filteredRecords]
@@ -1439,10 +1448,13 @@ function updateStatus(filteredRecords) {
       .at(-1);
     elements.dataStatusText.textContent =
       state.filters.agent === "all"
-        ? `${filteredRecords.length} live rows across ${totalAgents} agents and ${totalDates} date(s).${latestUpdated ? ` Last updated ${latestUpdated.toLocaleString("en-US")}.` : ""}`
-        : `${filteredRecords.length} live rows for ${state.filters.agent} across ${totalDates} date(s).${latestUpdated ? ` Last updated ${latestUpdated.toLocaleString("en-US")}.` : ""}`;
+        ? `${filteredRecords.length} live rows across ${totalAgents} agents and ${totalDates} date(s).${showLastUpdated && latestUpdated ? ` Last updated ${latestUpdated.toLocaleString("en-US")}.` : ""}`
+        : `${filteredRecords.length} live rows for ${state.filters.agent} across ${totalDates} date(s).${showLastUpdated && latestUpdated ? ` Last updated ${latestUpdated.toLocaleString("en-US")}.` : ""}`;
     if (elements.realtimeLastUpdatedText) {
-      elements.realtimeLastUpdatedText.textContent = latestUpdated ? latestUpdated.toLocaleString("en-US") : (state.realtimeDataset?.lastUpdatedDisplay || "N/A");
+      elements.realtimeLastUpdatedText.textContent = showLastUpdated && latestUpdated ? latestUpdated.toLocaleString("en-US") : "--";
+    }
+    if (elements.realtimeLastUpdatedPill) {
+      elements.realtimeLastUpdatedPill.hidden = !showLastUpdated;
     }
     return;
   }
@@ -1551,10 +1563,12 @@ function applyDashboardFocus() {
     elements.dateFilter.hidden = !realtimeFocus;
   }
   if (elements.realtimeLastUpdatedPill && elements.realtimeLastUpdatedText) {
-    elements.realtimeLastUpdatedPill.hidden = !realtimeFocus;
+    elements.realtimeLastUpdatedPill.hidden = !shouldShowRealtimeLastUpdated();
     const activeDataset = getActiveDataset();
     elements.realtimeLastUpdatedText.textContent = realtimeFocus
-      ? activeDataset?.lastUpdatedDisplay || "N/A"
+      ? shouldShowRealtimeLastUpdated()
+        ? activeDataset?.lastUpdatedDisplay || "N/A"
+        : "--"
       : "--";
   }
 
@@ -1781,7 +1795,7 @@ function bindEvents() {
 
   elements.mobileMoreExport?.addEventListener("click", () => {
     const filteredRecords = sortRecords(getFilteredRecords(getActiveDataset().records, state.filters), state.sort);
-    exportRowsToCsv(filteredRecords, state.dashboardFocus);
+    exportRowsToCsv(filteredRecords, state.dashboardFocus, { showLastUpdated: shouldShowRealtimeLastUpdated() });
     state.mobileMoreOpen = false;
     applyMobileMoreState();
     setMobileDockActive("more");
@@ -1889,7 +1903,7 @@ function bindEvents() {
 
   elements.exportCsvButton.addEventListener("click", () => {
     const filteredRecords = sortRecords(getFilteredRecords(getActiveDataset().records, state.filters), state.sort);
-    exportRowsToCsv(filteredRecords, state.dashboardFocus);
+    exportRowsToCsv(filteredRecords, state.dashboardFocus, { showLastUpdated: shouldShowRealtimeLastUpdated() });
   });
 }
 

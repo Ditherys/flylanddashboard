@@ -43,8 +43,12 @@ const COLUMN_SETS = {
   ],
 };
 
-function getColumns(focus = "performance") {
-  return COLUMN_SETS[focus] || COLUMN_SETS.all;
+function getColumns(focus = "performance", options = {}) {
+  const columns = [...(COLUMN_SETS[focus] || COLUMN_SETS.all)];
+  if (focus === "realtime" && options.showLastUpdated === false) {
+    return columns.filter((column) => column.key !== "lastUpdatedDisplay");
+  }
+  return columns;
 }
 
 function getSummaryMetricConfig(focus = "performance") {
@@ -255,8 +259,8 @@ function buildTableCell(column, record) {
   return `<td data-label="${column.label}">${formatValue(column, record)}</td>`;
 }
 
-export function initializeTable(headRow, onSort, sortState, focus = "performance") {
-  const columns = getColumns(focus);
+export function initializeTable(headRow, onSort, sortState, focus = "performance", options = {}) {
+  const columns = getColumns(focus, options);
   headRow.innerHTML = "";
   columns.forEach((column) => {
     const th = document.createElement("th");
@@ -343,8 +347,8 @@ export function renderTableSummary(summaryElement, records, focus = "performance
   `;
 }
 
-export function renderTable(bodyElement, records, expandedRowKeys, onRowSelect, focus = "performance") {
-  const columns = getColumns(focus);
+export function renderTable(bodyElement, records, expandedRowKeys, onRowSelect, focus = "performance", options = {}) {
+  const columns = getColumns(focus, options);
   bodyElement.innerHTML = "";
   if (!records.length) {
     const row = document.createElement("tr");
@@ -407,8 +411,8 @@ export function sortRecords(records, sortState) {
   });
 }
 
-export function exportRowsToCsv(records, focus = "performance") {
-  const columns = getColumns(focus);
+export function exportRowsToCsv(records, focus = "performance", options = {}) {
+  const columns = getColumns(focus, options);
   const headerRow = columns.map((column) => column.label).join(",");
   const lines = records.map((record) => {
     const values = columns.map((column) => {
