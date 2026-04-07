@@ -153,6 +153,7 @@
               <div class="dashboard-focus-switch" role="tablist" aria-label="Dashboard KPI focus">
                 <button class="dashboard-focus-button" data-dashboard-focus="all" type="button" role="tab" aria-selected="false"><span class="focus-full">All</span><span class="focus-short">All</span></button>
                 <button class="dashboard-focus-button is-active" data-dashboard-focus="performance" type="button" role="tab" aria-selected="true"><span class="focus-full">Performance</span><span class="focus-short">Perf</span></button>
+                <button class="dashboard-focus-button" data-dashboard-focus="realtime" type="button" role="tab" aria-selected="false"><span class="focus-full">Real-Time Performance</span><span class="focus-short">Live Perf</span></button>
                 <button class="dashboard-focus-button" data-dashboard-focus="attendance" type="button" role="tab" aria-selected="false"><span class="focus-full">Attendance</span><span class="focus-short">Attend</span></button>
                 <button class="dashboard-focus-button" data-dashboard-focus="qa" type="button" role="tab" aria-selected="false"><span class="focus-full">Quality Assurance</span><span class="focus-short">Quality</span></button>
               </div>
@@ -171,6 +172,10 @@
             <div class="meta-pill">
               <span class="meta-label">Deployment</span>
               <span>Netlify Ready</span>
+            </div>
+            <div class="meta-pill" id="realtimeLastUpdatedPill" hidden>
+              <span class="meta-label">Last Updated</span>
+              <span id="realtimeLastUpdatedText">--</span>
             </div>
           </div>
         </header>
@@ -234,7 +239,7 @@
           <div class="top-filters-header">
             <div>
               <p class="eyebrow">Quick Filters</p>
-              <h3>Filter by month, week, and agent</h3>
+              <h3 id="topFiltersTitle">Filter by month, week, and agent</h3>
             </div>
           </div>
           <div class="top-filters-mobile-toggle">
@@ -244,16 +249,17 @@
           </div>
           <div class="filters-content-area" id="filtersContentArea">
             <div class="top-filters-grid">
-              <label>
-                <span>Month</span>
+              <label id="monthFilterField">
+                <span id="monthFilterLabel">Month</span>
                 <select id="monthFilter"></select>
               </label>
-              <label>
-                <span>Week Ending</span>
+              <label id="weekFilterField">
+                <span id="weekFilterLabel">Week Ending</span>
                 <select id="weekFilter"></select>
+                <input id="dateFilter" type="date" hidden />
               </label>
-              <label>
-                <span>Agent</span>
+              <label id="agentFilterField">
+                <span id="agentFilterLabel">Agent</span>
                 <select id="agentFilter"></select>
               </label>
               <div class="top-filter-action">

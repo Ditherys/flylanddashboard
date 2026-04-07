@@ -1146,7 +1146,15 @@ select {
   grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
+#appShell[data-dashboard-focus="realtime"] #summaryCards {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
 #appShell[data-dashboard-focus="performance"] #rawMetricsGrid {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+#appShell[data-dashboard-focus="realtime"] #rawMetricsGrid {
   grid-template-columns: repeat(5, minmax(0, 1fr));
 }
 
@@ -1158,6 +1166,14 @@ select {
 #appShell[data-dashboard-focus="attendance"] #rawMetricsGrid,
 #appShell[data-dashboard-focus="qa"] #rawMetricsGrid {
   grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.meta-pill[hidden] {
+  display: none !important;
+}
+
+.top-filters-grid label.is-hidden {
+  display: none;
 }
 
 .header-logo {
@@ -1391,7 +1407,8 @@ select {
   align-items: end;
 }
 
-.top-filters-grid select {
+.top-filters-grid select,
+.top-filters-grid input[type="date"] {
   width: 100%;
   min-height: 36px;
   padding: 0.42rem 0.72rem;
@@ -1402,7 +1419,8 @@ select {
   outline: none;
 }
 
-.top-filters-grid select:focus {
+.top-filters-grid select:focus,
+.top-filters-grid input[type="date"]:focus {
   border-color: rgba(18, 58, 111, 0.35);
   box-shadow: 0 0 0 4px rgba(18, 58, 111, 0.08);
 }
@@ -2038,6 +2056,10 @@ select {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
+#appShell[data-dashboard-focus="realtime"] .distribution-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
 .distribution-item {
   padding: 0.8rem 0.75rem 0.65rem;
   border-radius: 18px;
@@ -2286,6 +2308,10 @@ select {
 
 #appShell[data-dashboard-focus="performance"] #tableSection {
   border-top: 4px solid rgba(31, 41, 55, 0.9);
+}
+
+#appShell[data-dashboard-focus="realtime"] #tableSection {
+  border-top: 4px solid rgba(59, 130, 246, 0.88);
 }
 
 #appShell[data-dashboard-focus="attendance"] #tableSection {
@@ -2889,7 +2915,7 @@ tbody td:first-child {
   .dashboard-focus-switch {
     width: 100%;
     display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-columns: repeat(5, minmax(0, 1fr));
     gap: 0.32rem;
     margin-top: 0.5rem;
   }
@@ -3106,6 +3132,10 @@ tbody td:first-child {
     grid-template-columns: 1fr;
   }
 
+  #appShell[data-dashboard-focus="realtime"] #summaryCards {
+    grid-template-columns: 1fr;
+  }
+
   .raw-grid {
     display: none;
   }
@@ -3154,6 +3184,10 @@ tbody td:first-child {
   }
 
   #appShell[data-dashboard-focus="performance"] .distribution-grid {
+    grid-template-columns: 1fr;
+  }
+
+  #appShell[data-dashboard-focus="realtime"] .distribution-grid {
     grid-template-columns: 1fr;
   }
 
@@ -3327,6 +3361,7 @@ tbody td:first-child {
   }
 
   .top-filters-grid select,
+  .top-filters-grid input[type="date"],
   .table-search input {
     min-height: 32px;
     padding: 0.4rem 0.62rem;

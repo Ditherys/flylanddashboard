@@ -9,6 +9,8 @@ export const DATA_SOURCES = {
     "https://docs.google.com/spreadsheets/d/e/2PACX-1vTeRQW4lRoAHT-2wqV68VMa7L9qDTrBTLqM80Mc1ixmBJ97nv4Ua5k0iCvdxLmlr09oVLgMgXiLeMAx/pub?gid=1889029070&single=true&output=csv",
   attendance:
     "https://docs.google.com/spreadsheets/d/e/2PACX-1vTeRQW4lRoAHT-2wqV68VMa7L9qDTrBTLqM80Mc1ixmBJ97nv4Ua5k0iCvdxLmlr09oVLgMgXiLeMAx/pub?gid=1883055018&single=true&output=csv",
+  realtime:
+    "https://docs.google.com/spreadsheets/d/e/2PACX-1vTeRQW4lRoAHT-2wqV68VMa7L9qDTrBTLqM80Mc1ixmBJ97nv4Ua5k0iCvdxLmlr09oVLgMgXiLeMAx/pub?gid=2030355169&single=true&output=csv",
   primaryKey:
     "https://docs.google.com/spreadsheets/d/e/2PACX-1vTeRQW4lRoAHT-2wqV68VMa7L9qDTrBTLqM80Mc1ixmBJ97nv4Ua5k0iCvdxLmlr09oVLgMgXiLeMAx/pub?gid=1217733890&single=true&output=csv",
 };
@@ -48,6 +50,8 @@ const FIELD_ALIASES = {
   required_hours: "requiredHours",
   attendancepercentage: "attendancePercent",
   attendance_percentage: "attendancePercent",
+  lastupdated: "lastUpdated",
+  last_updated: "lastUpdated",
   id1: "displayName",
   id2: "altNameOne",
   id3: "altNameTwo",

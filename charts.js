@@ -39,6 +39,12 @@ const FOCUS_METRICS = {
     { label: "AHT", scoreKey: "ahtScore", rawType: "ahtSeconds", color: CHART_COLORS.aht },
     { label: "Performance", scoreKey: "performanceScore", rawType: "performanceScore", color: CHART_COLORS.overall },
   ],
+  realtime: [
+    { label: "Transfer", scoreKey: "transferScore", rawType: "transferRatePercent", color: CHART_COLORS.transfer },
+    { label: "Admits", scoreKey: "admitsScore", rawType: "admitsCount", color: CHART_COLORS.admits },
+    { label: "AHT", scoreKey: "ahtScore", rawType: "ahtSeconds", color: CHART_COLORS.aht },
+    { label: "Performance", scoreKey: "performanceScore", rawType: "performanceScore", color: CHART_COLORS.overall },
+  ],
   attendance: [
     { label: "Attendance", scoreKey: "attendanceScore", rawType: "attendancePercentValue", color: CHART_COLORS.attendance },
   ],

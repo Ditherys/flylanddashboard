@@ -17,6 +17,15 @@ const COLUMN_SETS = {
     { key: "aht", label: "AHT", type: "kpi" },
     { key: "performanceScore", label: "Performance", type: "number2" },
   ],
+  realtime: [
+    { key: "agentName", label: "Agent Name", type: "text" },
+    { key: "weekEnding", label: "Date", type: "text" },
+    { key: "transfer", label: "Transfer", type: "kpi" },
+    { key: "admits", label: "Admits", type: "kpi" },
+    { key: "aht", label: "AHT", type: "kpi" },
+    { key: "performanceScore", label: "Performance", type: "number2" },
+    { key: "lastUpdatedDisplay", label: "Last Updated", type: "text" },
+  ],
   attendance: [
     { key: "agentName", label: "Agent Name", type: "text" },
     { key: "weekEnding", label: "Week Ending", type: "text" },
@@ -60,6 +69,13 @@ function getSummaryMetricConfig(focus = "performance") {
       description: "Mean QA score across shown rows.",
     };
   }
+  if (focus === "realtime") {
+    return {
+      key: "performanceScore",
+      label: "Performance",
+      description: "Mean real-time performance score across shown rows.",
+    };
+  }
   return {
     key: "performanceScore",
     label: "Performance",
@@ -81,7 +97,7 @@ function getRowState(record, focus = "performance") {
   const focusValue = record[focusKey];
   const candidateScores = focus === "all"
     ? [record.transferScore, record.admitsScore, record.ahtScore, record.attendanceScore, record.qaScore]
-    : focus === "performance"
+    : focus === "performance" || focus === "realtime"
     ? [record.transferScore, record.admitsScore, record.ahtScore]
     : focus === "attendance"
       ? [record.attendanceScore]
@@ -160,7 +176,7 @@ function renderPerformanceDetailGroups(record) {
           <span class="score-pill ${record.admitsScore === null || record.admitsScore === undefined || Number.isNaN(record.admitsScore) ? "score-na" : `score-${Math.round(record.admitsScore)}`}">${record.admitsScore === null || record.admitsScore === undefined || Number.isNaN(record.admitsScore) ? "N/A" : Math.round(record.admitsScore)}</span>
         </div>
         <strong>${record.admitsCount === null || record.admitsCount === undefined ? "N/A" : Number(record.admitsCount).toFixed(0)}</strong>
-        <p>Admit Count for this selected row.</p>
+        <p>${record.admitsCount === null || record.admitsCount === undefined ? "Admits is not available in this source yet." : "Admit Count for this selected row."}</p>
       </article>
       <article class="table-detail-group table-detail-group-aht">
         <div class="table-detail-group-header">
@@ -171,6 +187,7 @@ function renderPerformanceDetailGroups(record) {
         <p>Inbound Calls: ${record.inboundCalls === null || record.inboundCalls === undefined ? "N/A" : Number(record.inboundCalls).toFixed(0)}</p>
         <p>Inbound Minutes: ${record.inboundMinutes || "N/A"}</p>
         <p>Hold Time: ${record.holdTime || "N/A"}</p>
+        ${record.lastUpdatedDisplay ? `<p>Last Updated: ${record.lastUpdatedDisplay}</p>` : ""}
       </article>
     </div>
   `;
@@ -178,7 +195,7 @@ function renderPerformanceDetailGroups(record) {
 
 function renderExpandedRow(record, focus = "performance") {
   const columns = getColumns(focus);
-  const detailItems = focus === "performance"
+  const detailItems = focus === "performance" || focus === "realtime"
     ? renderPerformanceDetailGroups(record)
     : getDetailKpiRows(record, focus)
       .map(([label, value]) => `<div class="table-detail-item"><span>${label}</span><strong>${value}</strong></div>`)
@@ -190,10 +207,10 @@ function renderExpandedRow(record, focus = "performance") {
         <div class="table-detail-panel">
           <div class="table-detail-topline">
             <span class="table-row-state table-row-state-${getRowState(record, focus)}">${getRowStateLabel(getRowState(record, focus))}</span>
-            <strong>${record.agentName} | Week Ending ${record.weekEnding}</strong>
-            <span>${focus === "all" ? `Overall ${scoreText(record.overallScore)}` : focus === "performance" ? `Performance ${scoreText(record.performanceScore)}` : focus === "attendance" ? `Attendance ${scoreText(record.attendanceScore)}` : `Quality Assurance ${scoreText(record.qaScore)}`}</span>
+            <strong>${record.agentName} | ${focus === "realtime" ? "Date" : "Week Ending"} ${record.weekEnding}</strong>
+            <span>${focus === "all" ? `Overall ${scoreText(record.overallScore)}` : focus === "performance" || focus === "realtime" ? `Performance ${scoreText(record.performanceScore)}` : focus === "attendance" ? `Attendance ${scoreText(record.attendanceScore)}` : `Quality Assurance ${scoreText(record.qaScore)}`}</span>
           </div>
-          <div class="${focus === "performance" ? "table-detail-shell" : "table-detail-grid"}">${detailItems}</div>
+          <div class="${focus === "performance" || focus === "realtime" ? "table-detail-shell" : "table-detail-grid"}">${detailItems}</div>
         </div>
       </td>
     </tr>
@@ -284,9 +301,9 @@ export function renderTableSummary(summaryElement, records, focus = "performance
         <p>Current filtered agent scope.</p>
       </div>
       <div class="table-summary-card">
-        <span class="table-summary-label">Weeks Shown</span>
+        <span class="table-summary-label">${focus === "realtime" ? "Dates Shown" : "Weeks Shown"}</span>
         <strong>${records.length}</strong>
-        <p>Weekly rows available for this agent.</p>
+        <p>${focus === "realtime" ? "Date rows available for this agent." : "Weekly rows available for this agent."}</p>
       </div>
       <div class="table-summary-card">
         <span class="table-summary-label">Average ${metric.label}</span>
@@ -296,7 +313,7 @@ export function renderTableSummary(summaryElement, records, focus = "performance
       <div class="table-summary-card">
         <span class="table-summary-label">Latest ${metric.label}</span>
         <strong>${latestRecord ? `${latestRecord.weekEnding} | ${scoreText(latestRecord[metric.key])}` : "N/A"}</strong>
-        <p>Most recent visible week for this agent.</p>
+        <p>${focus === "realtime" ? "Most recent visible date for this agent." : "Most recent visible week for this agent."}</p>
       </div>
     `;
     return;

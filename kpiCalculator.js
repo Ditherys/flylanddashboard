@@ -17,6 +17,12 @@ function parseWeekEnding(value) {
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 
+function parseTimestamp(value) {
+  if (!value) return null;
+  const parsed = new Date(String(value).trim());
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
 function secondsFromDuration(duration) {
   if (!duration) return 0;
 
@@ -424,5 +430,137 @@ export function buildKpiDataset(rawDatasets) {
     agentOptions: [...new Set(records.map((record) => record.agentName))].sort((left, right) =>
       left.localeCompare(right)
     ),
+  };
+}
+
+export function buildRealtimeDataset(rawDatasets) {
+  const primaryKeyLookup = buildPrimaryKeyLookup(rawDatasets.primaryKey || []);
+  const records = (rawDatasets.realtime || [])
+    .map((row) => {
+      const dateValue = String(row.dateRange || "").trim();
+      if (!dateValue) return null;
+
+      const person = resolvePerson(primaryKeyLookup, row.email, row.agentName);
+      const weekDate = parseWeekEnding(dateValue);
+      if (!person.identity || !weekDate) return null;
+
+      const firstTimeCaller = safeNumber(row.firstTimeCaller);
+      const transferCount = safeNumber(row.transferCount);
+      const inboundCalls = safeNumber(row.inboundCalls);
+      const transferRate = calculateTransferRate(transferCount, firstTimeCaller);
+      const transferScore = calculateTransferScore(transferRate);
+      const ahtSeconds = calculateAHT(row.inboundMinutes, row.holdTime, inboundCalls);
+      const ahtScore = calculateAHTScore(ahtSeconds);
+      const performanceScore = calculatePerformanceScore(transferScore, null, ahtScore);
+      const overallComposition = getOverallComposition(performanceScore, null, null);
+      const overallScore = calculateOverallScore(performanceScore, null, null);
+      const lastUpdatedAt = parseTimestamp(row.lastUpdated);
+
+      return {
+        key: makeKey(person.identity, dateValue),
+        identity: person.identity,
+        email: person.email || normalizeEmail(row.email),
+        agentName: person.displayName || normalizeDisplayName(row.agentName),
+        weekEnding: dateValue,
+        weekDate,
+        monthLabel: titleCaseMonth(weekDate),
+        dateRange: dateValue,
+        firstTimeCaller,
+        transferCount,
+        inboundCalls,
+        inboundMinutes: row.inboundMinutes || "",
+        holdTime: row.holdTime || "",
+        inboundMinutesSeconds: secondsFromDuration(row.inboundMinutes),
+        holdTimeSeconds: secondsFromDuration(row.holdTime),
+        transferRate,
+        transferRatePercent: transferRate === null ? null : transferRate * 100,
+        transferRateDisplay: formatPercent(transferRate === null ? null : transferRate * 100),
+        transferScore,
+        admitsCount: null,
+        admitsScore: null,
+        ahtSeconds,
+        ahtDisplay: formatAHT(ahtSeconds),
+        ahtScore,
+        attendancePercentValue: null,
+        attendancePercentDisplay: "N/A",
+        attendanceScore: null,
+        qaPercentValue: null,
+        qaPercentDisplay: "N/A",
+        qaScore: null,
+        performanceScore,
+        overallScore,
+        overallIncludesQa: false,
+        overallWeights: overallComposition.weights,
+        lastUpdated: row.lastUpdated || "",
+        lastUpdatedAt,
+        lastUpdatedDisplay: row.lastUpdated || "N/A",
+      };
+    })
+    .filter(Boolean)
+    .sort((left, right) => {
+      const leftTime = left.weekDate?.getTime() ?? 0;
+      const rightTime = right.weekDate?.getTime() ?? 0;
+      return leftTime - rightTime || left.agentName.localeCompare(right.agentName);
+    });
+
+  const weekGroups = groupByWeek(records);
+  const weeklyAverages = [...weekGroups.entries()]
+    .map(([weekEnding, items]) => {
+      const latestLastUpdated = [...items]
+        .map((item) => item.lastUpdatedAt)
+        .filter((value) => value instanceof Date && !Number.isNaN(value.getTime()))
+        .sort((left, right) => left.getTime() - right.getTime())
+        .at(-1) || null;
+
+      return {
+        weekEnding,
+        weekDate: items[0]?.weekDate || parseWeekEnding(weekEnding),
+        monthLabel: items[0]?.monthLabel || "Unknown",
+        transferScore: average(items, (item) => item.transferScore),
+        admitsScore: null,
+        ahtScore: average(items, (item) => item.ahtScore),
+        attendanceScore: null,
+        qaScore: null,
+        performanceScore: average(items, (item) => item.performanceScore),
+        overallScore: average(items, (item) => item.overallScore),
+        overallIncludesQa: false,
+        overallWeights: {
+          performance: average(items, (item) => item.overallWeights?.performance),
+          attendance: 0,
+          qa: 0,
+        },
+        transferRatePercent: average(items, (item) => item.transferRatePercent),
+        admitsCount: null,
+        firstTimeCaller: average(items, (item) => item.firstTimeCaller),
+        transferCount: average(items, (item) => item.transferCount),
+        inboundCalls: average(items, (item) => item.inboundCalls),
+        inboundMinutesSeconds: average(items, (item) => item.inboundMinutesSeconds),
+        holdTimeSeconds: average(items, (item) => item.holdTimeSeconds),
+        ahtSeconds: average(items, (item) => item.ahtSeconds),
+        attendancePercentValue: null,
+        qaPercentValue: null,
+        agentCount: items.length,
+        lastUpdatedAt: latestLastUpdated,
+        lastUpdatedDisplay: latestLastUpdated ? latestLastUpdated.toLocaleString("en-US") : "N/A",
+      };
+    })
+    .sort((left, right) => (left.weekDate?.getTime() ?? 0) - (right.weekDate?.getTime() ?? 0));
+
+  const latestLastUpdated = [...records]
+    .map((record) => record.lastUpdatedAt)
+    .filter((value) => value instanceof Date && !Number.isNaN(value.getTime()))
+    .sort((left, right) => left.getTime() - right.getTime())
+    .at(-1) || null;
+
+  return {
+    records,
+    weeklyAverages,
+    monthOptions: [...new Set(records.map((record) => record.monthLabel))],
+    weekOptions: [...new Set(records.map((record) => record.weekEnding))],
+    agentOptions: [...new Set(records.map((record) => record.agentName))].sort((left, right) =>
+      left.localeCompare(right)
+    ),
+    lastUpdatedAt: latestLastUpdated,
+    lastUpdatedDisplay: latestLastUpdated ? latestLastUpdated.toLocaleString("en-US") : "N/A",
   };
 }
