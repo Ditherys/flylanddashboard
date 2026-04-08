@@ -2082,7 +2082,7 @@ function applyDashboardFocus() {
       : state.dashboardFocus === "performance"
       ? "Focused on transfer, admits, and AHT rows for the selected scope."
       : ["transfer", "admits", "aht"].includes(state.dashboardFocus)
-      ? `Focused on ${focusLabel.toLowerCase()} rows, with grouped performance details for debugging.`
+      ? `Focused on ${focusLabel.toLowerCase()} rows for the selected scope.`
       : state.dashboardFocus === "attendance"
         ? "Focused on attendance rows and attendance score movement for the selected scope."
         : "Focused on quality assurance rows, QA scoring, and source updates for the selected scope.";
