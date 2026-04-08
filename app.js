@@ -1885,16 +1885,16 @@ function updateLayoutVisibility() {
     elements.trendsSection.classList.toggle("is-hidden", focus === "attendance" || focus === "qa");
   }
   if (elements.snapshotSection) {
-    elements.snapshotSection.classList.toggle("is-hidden", false);
+    elements.snapshotSection.classList.toggle("is-hidden", focus === "qa");
   }
   if (elements.performersSection) {
-    elements.performersSection.classList.toggle("is-hidden", false);
+    elements.performersSection.classList.toggle("is-hidden", focus === "qa");
   }
   if (elements.deepDiveSection) {
     elements.deepDiveSection.classList.toggle("is-hidden", focus === "attendance" || focus === "qa");
   }
   if (elements.diagnosticsSection) {
-    elements.diagnosticsSection.classList.toggle("is-hidden", !["all", "performance", "realtime"].includes(focus));
+    elements.diagnosticsSection.classList.toggle("is-hidden", focus === "qa" || !["all", "performance", "realtime"].includes(focus));
   }
 }
 
@@ -1915,6 +1915,14 @@ function updateDashboard() {
 
   state.distributionDrilldownOpen = false;
   applyDistributionDrilldownState();
+
+  if (state.dashboardFocus === "qa") {
+    updateSummaryCards(dashboardRecords, weeklyAverages);
+    updateTable(tableRecords);
+    updateStatus(dashboardRecords);
+    updateLayoutVisibility();
+    return;
+  }
 
   updateInsights(dashboardRecords, weeklyAverages);
   updateSummaryCards(dashboardRecords, weeklyAverages);

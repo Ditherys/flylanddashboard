@@ -29,7 +29,7 @@ const COLUMN_SETS = {
     { key: "agentName", label: "Agent Name", type: "text" },
     { key: "weekEnding", label: "Date Range", type: "text" },
     { key: "admitsCount", label: "Admits Count", type: "number0" },
-    { key: "admits", label: "Admits KPI", type: "kpi" },
+    { key: "admitsScore", label: "Admits Score", type: "scorepill" },
     { key: "admitsLastUpdatedDisplay", label: "Last Updated", type: "text" },
   ],
   aht: [
