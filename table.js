@@ -60,6 +60,7 @@ const COLUMN_SETS = {
     { key: "requiredHours", label: "Req Hrs", type: "number2" },
     { key: "attendancePercentDisplay", label: "Att %", type: "text" },
     { key: "attendanceScore", label: "KPI Score", type: "scorepill" },
+    { key: "attendanceLastUpdatedDisplay", label: "Last Updated", type: "text" },
   ],
   qa: [
     { key: "agentName", label: "Agent Name", type: "text" },

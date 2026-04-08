@@ -108,6 +108,8 @@ const elements = {
   mobileStatusMonth: document.querySelector("#mobileStatusMonth"),
   mobileStatusWeek: document.querySelector("#mobileStatusWeek"),
   mobileStatusScope: document.querySelector("#mobileStatusScope"),
+  mobileLastUpdatedStrip: document.querySelector("#mobileLastUpdatedStrip"),
+  mobileLastUpdatedText: document.querySelector("#mobileLastUpdatedText"),
   mobileHomeButtons: [...document.querySelectorAll("[data-mobile-target]")],
   focusButtons: [...document.querySelectorAll("[data-dashboard-focus]")],
   mobileBottomNavButtons: [...document.querySelectorAll(".mobile-bottom-nav-button[data-mobile-action]")],
@@ -233,6 +235,10 @@ function isPerformanceLikeFocus() {
 
 function isSingleKpiFocus() {
   return Object.prototype.hasOwnProperty.call(SINGLE_KPI_SCORE_KEYS, state.dashboardFocus);
+}
+
+function shouldEnableRowExpansion() {
+  return !isSingleKpiFocus() && state.dashboardFocus !== "all";
 }
 
 function getActiveDataset() {
@@ -920,7 +926,27 @@ function shouldShowRealtimeLastUpdated() {
 }
 
 function shouldShowFocusLastUpdated() {
-  return shouldShowRealtimeLastUpdated() || ["admits", "qa"].includes(state.dashboardFocus);
+  return shouldShowRealtimeLastUpdated() || ["admits", "attendance", "qa"].includes(state.dashboardFocus);
+}
+
+function getFocusLastUpdatedDisplay(records) {
+  if (state.dashboardFocus === "admits") {
+    return getLatestAdmitsLastUpdatedDisplay(records);
+  }
+  if (state.dashboardFocus === "attendance") {
+    const latestRecord = [...records]
+      .filter((record) => record.attendanceLastUpdatedAt instanceof Date && !Number.isNaN(record.attendanceLastUpdatedAt.getTime()))
+      .sort((left, right) => left.attendanceLastUpdatedAt.getTime() - right.attendanceLastUpdatedAt.getTime())
+      .at(-1);
+    return latestRecord?.attendanceLastUpdatedDisplay || "--";
+  }
+  if (state.dashboardFocus === "qa") {
+    return getLatestQaLastUpdatedDisplay(records);
+  }
+  if (["transfer", "aht", "realtime"].includes(state.dashboardFocus)) {
+    return getLatestLastUpdatedDisplay(records);
+  }
+  return "--";
 }
 
 function getRankedKpis(summary) {
@@ -1708,7 +1734,7 @@ function handleRowToggle(rowKey) {
 function updateTable(filteredRecords) {
   const tableOptions = {
     showLastUpdated: shouldShowRealtimeLastUpdated(),
-    enableRowExpansion: !isSingleKpiFocus(),
+    enableRowExpansion: shouldEnableRowExpansion(),
   };
   if (elements.tableDebugLine) {
     elements.tableDebugLine.hidden = true;
@@ -1730,6 +1756,13 @@ function updateTable(filteredRecords) {
 }
 
 function updateStatus(filteredRecords) {
+  if (elements.mobileLastUpdatedStrip && elements.mobileLastUpdatedText) {
+    const mobileLastUpdatedDisplay = getFocusLastUpdatedDisplay(filteredRecords);
+    const showMobileLastUpdated = shouldShowFocusLastUpdated() && mobileLastUpdatedDisplay !== "--";
+    elements.mobileLastUpdatedText.textContent = mobileLastUpdatedDisplay;
+    elements.mobileLastUpdatedStrip.hidden = !showMobileLastUpdated;
+  }
+
   if (isRealtimeFocus()) {
     const showLastUpdated = shouldShowRealtimeLastUpdated();
     const totalAgents = new Set(filteredRecords.map((record) => record.agentName)).size;
@@ -1794,6 +1827,23 @@ function updateStatus(filteredRecords) {
       state.filters.agent === "all"
         ? `${filteredRecords.length} admits rows across ${totalAgents} agents and ${totalDates} date range(s).${latestUpdatedDisplay !== "--" ? ` Last updated ${latestUpdatedDisplay}.` : ""}`
         : `${filteredRecords.length} admits rows for ${state.filters.agent} across ${totalDates} date range(s).${latestUpdatedDisplay !== "--" ? ` Last updated ${latestUpdatedDisplay}.` : ""}`;
+    if (elements.realtimeLastUpdatedText) {
+      elements.realtimeLastUpdatedText.textContent = latestUpdatedDisplay;
+    }
+    if (elements.realtimeLastUpdatedPill) {
+      elements.realtimeLastUpdatedPill.hidden = latestUpdatedDisplay === "--";
+    }
+    return;
+  }
+
+  if (state.dashboardFocus === "attendance") {
+    const totalAgents = new Set(filteredRecords.map((record) => record.agentName)).size;
+    const totalDates = new Set(filteredRecords.map((record) => record.weekEnding)).size;
+    const latestUpdatedDisplay = getFocusLastUpdatedDisplay(filteredRecords);
+    elements.dataStatusText.textContent =
+      state.filters.agent === "all"
+        ? `${filteredRecords.length} attendance rows across ${totalAgents} agents and ${totalDates} date range(s).${latestUpdatedDisplay !== "--" ? ` Last updated ${latestUpdatedDisplay}.` : ""}`
+        : `${filteredRecords.length} attendance rows for ${state.filters.agent} across ${totalDates} date range(s).${latestUpdatedDisplay !== "--" ? ` Last updated ${latestUpdatedDisplay}.` : ""}`;
     if (elements.realtimeLastUpdatedText) {
       elements.realtimeLastUpdatedText.textContent = latestUpdatedDisplay;
     }
@@ -2038,7 +2088,7 @@ function applyDashboardFocus() {
         : "Focused on quality assurance rows, QA scoring, and source updates for the selected scope.";
   }
   if (elements.tableRowHint) {
-    elements.tableRowHint.textContent = isSingleKpiFocus()
+    elements.tableRowHint.textContent = !shouldEnableRowExpansion()
       ? ""
       : state.dashboardFocus === "performance" || realtimeFocus
       ? "Click any row to view grouped Transfer, Admits, and AHT details."
@@ -2047,7 +2097,12 @@ function applyDashboardFocus() {
       : state.dashboardFocus === "attendance"
         ? "Click any row to open the attendance details."
         : "Click any row to open the quality assurance details.";
-    elements.tableRowHint.classList.toggle("is-hidden", isSingleKpiFocus());
+    elements.tableRowHint.classList.toggle("is-hidden", !shouldEnableRowExpansion());
+  }
+  if (elements.expandAllRowsButton && elements.collapseAllRowsButton) {
+    const expandable = shouldEnableRowExpansion();
+    elements.expandAllRowsButton.classList.toggle("is-hidden", !expandable);
+    elements.collapseAllRowsButton.classList.toggle("is-hidden", !expandable);
   }
   if (elements.tableSearch) {
     elements.tableSearch.placeholder = state.dashboardFocus === "all"

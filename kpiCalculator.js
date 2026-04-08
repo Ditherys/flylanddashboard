@@ -445,10 +445,11 @@ export function buildKpiDataset(rawDatasets) {
       const attendanceScore = calculateAttendanceScore(record.attendancePercent);
       const qaScore = calculateQAScore(record.qaPercent);
       const performanceScore = calculatePerformanceScore(transferScore, admitsScore, ahtScore);
-      const overallComposition = getOverallComposition(performanceScore, attendanceScore, qaScore);
-      const overallScore = calculateOverallScore(performanceScore, attendanceScore, qaScore);
-      const admitsLastUpdatedAt = parseTimestamp(record.admitsLastUpdated);
-      const qaLastUpdatedAt = parseTimestamp(record.qaLastUpdated);
+        const overallComposition = getOverallComposition(performanceScore, attendanceScore, qaScore);
+        const overallScore = calculateOverallScore(performanceScore, attendanceScore, qaScore);
+        const admitsLastUpdatedAt = parseTimestamp(record.admitsLastUpdated);
+        const attendanceLastUpdatedAt = parseTimestamp(record.attendanceLastUpdated);
+        const qaLastUpdatedAt = parseTimestamp(record.qaLastUpdated);
 
       return {
         ...record,
@@ -475,12 +476,14 @@ export function buildKpiDataset(rawDatasets) {
         performanceScore,
         overallScore,
         overallIncludesQa: overallComposition.includesQa,
-        overallWeights: overallComposition.weights,
-        admitsLastUpdatedAt,
-        admitsLastUpdatedDisplay: formatLastUpdatedDisplay(record.admitsLastUpdated, admitsLastUpdatedAt),
-        qaLastUpdatedAt,
-        qaLastUpdatedDisplay: formatLastUpdatedDisplay(record.qaLastUpdated, qaLastUpdatedAt),
-      };
+          overallWeights: overallComposition.weights,
+          admitsLastUpdatedAt,
+          admitsLastUpdatedDisplay: formatLastUpdatedDisplay(record.admitsLastUpdated, admitsLastUpdatedAt),
+          attendanceLastUpdatedAt,
+          attendanceLastUpdatedDisplay: formatLastUpdatedDisplay(record.attendanceLastUpdated, attendanceLastUpdatedAt),
+          qaLastUpdatedAt,
+          qaLastUpdatedDisplay: formatLastUpdatedDisplay(record.qaLastUpdated, qaLastUpdatedAt),
+        };
     })
     .sort((left, right) => {
       const leftTime = left.weekDate?.getTime() ?? 0;

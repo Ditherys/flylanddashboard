@@ -527,6 +527,18 @@ function getMobileKpiLabel(label) {
   return isMobileViewport() ? (labelMap[label] || label) : label;
 }
 
+function formatShortDateRangeLabel(label) {
+  if (!label) return "";
+  const [start = "", end = ""] = String(label).split(" - ").map((part) => part.trim());
+  const shorten = (value) => {
+    const pieces = value.split("/");
+    if (pieces.length < 2) return value;
+    return `${pieces[0].padStart(2, "0")}/${pieces[1].padStart(2, "0")}`;
+  };
+  if (!end) return shorten(start);
+  return `${shorten(start)} - ${shorten(end)}`;
+}
+
 function getChartDisplayName(agentName) {
   if (!agentName) return "";
   const parts = String(agentName).split(",");
@@ -639,14 +651,16 @@ function formatMetricRaw(metric, item) {
 
 export function renderLineChart(canvas, chart, weeklyAverages, focus = "performance") {
   destroyIfExists(chart);
+  const isMobile = isMobileViewport();
+  const trendPoints = isMobile ? weeklyAverages.slice(-4) : weeklyAverages;
   const metrics = getFocusMetrics(focus);
   return new Chart(canvas, {
     type: "line",
     data: {
-      labels: weeklyAverages.map((item) => item.weekEnding),
+      labels: trendPoints.map((item) => isMobile ? formatShortDateRangeLabel(item.weekEnding) : item.weekEnding),
       datasets: metrics.map((metric) => ({
         label: metric.label,
-        data: weeklyAverages.map((item) => item[metric.scoreKey]),
+        data: trendPoints.map((item) => item[metric.scoreKey]),
         borderColor: metric.color,
         backgroundColor: metric.color,
         borderWidth: metric.label === "Performance" ? 3 : 2,
@@ -657,19 +671,20 @@ export function renderLineChart(canvas, chart, weeklyAverages, focus = "performa
       ...buildBaseOptions(),
       plugins: {
         ...buildBaseOptions().plugins,
-        tooltip: {
-          ...buildBaseOptions().plugins.tooltip,
-          callbacks: {
-            title(items) {
-              return items[0]?.label || "";
+          tooltip: {
+            ...buildBaseOptions().plugins.tooltip,
+            callbacks: {
+              title(items) {
+                const item = trendPoints[items[0]?.dataIndex ?? -1];
+                return item?.weekEnding || items[0]?.label || "";
+              },
+              label(context) {
+                const item = trendPoints[context.dataIndex];
+                const score = Number(context.parsed.y).toFixed(2);
+                const metric = metrics.find((entry) => entry.label === context.dataset.label);
+                return [`Score: ${score}`, formatMetricRaw(metric, item)];
+              },
             },
-            label(context) {
-              const item = weeklyAverages[context.dataIndex];
-              const score = Number(context.parsed.y).toFixed(2);
-              const metric = metrics.find((entry) => entry.label === context.dataset.label);
-              return [`Score: ${score}`, formatMetricRaw(metric, item)];
-            },
-          },
         },
       },
     },
@@ -1593,12 +1608,20 @@ export function renderImprovementChart(canvas, chart, records, metricLabel = "Im
             color: "rgba(16, 33, 61, 0.08)",
           },
         },
-        x: {
-          grid: {
-            display: false,
+          x: {
+            grid: {
+              display: false,
+            },
+            ticks: {
+              maxRotation: 0,
+              minRotation: 0,
+              autoSkip: false,
+              font: {
+                size: isMobile ? 10 : 12,
+              },
+            },
           },
         },
       },
-    },
-  });
+    });
 }
