@@ -17,10 +17,29 @@ function parseWeekEnding(value) {
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 
+function parseDateRange(value) {
+  if (!value) return null;
+  const parts = String(value)
+    .split("-")
+    .map((part) => part.trim())
+    .filter(Boolean);
+  const endValue = parts.at(-1) || String(value).trim();
+  return parseWeekEnding(endValue);
+}
+
 function parseTimestamp(value) {
   if (!value) return null;
   const parsed = new Date(String(value).trim());
   return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function formatLastUpdatedDisplay(rawValue, parsedValue = null) {
+  const trimmed = String(rawValue ?? "").trim();
+  if (trimmed) return `${trimmed} EST`;
+  if (parsedValue instanceof Date && !Number.isNaN(parsedValue.getTime())) {
+    return `${parsedValue.toLocaleString("en-US")} EST`;
+  }
+  return "N/A";
 }
 
 function secondsFromDuration(duration) {
@@ -41,6 +60,18 @@ function secondsFromDuration(duration) {
     return minutes * 60 + seconds;
   }
   return parts[0] ?? 0;
+}
+
+function formatDurationFromSeconds(totalSeconds) {
+  if (totalSeconds === null || totalSeconds === undefined || Number.isNaN(totalSeconds)) return "";
+  const normalized = Math.max(0, Math.round(totalSeconds));
+  const hours = Math.floor(normalized / 3600);
+  const minutes = Math.floor((normalized % 3600) / 60);
+  const seconds = normalized % 60;
+  if (hours > 0) {
+    return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+  }
+  return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
 }
 
 function normalizeEmail(value) {
@@ -263,9 +294,64 @@ function resolvePerson(primaryKeyLookup, email, fallbackName) {
   };
 }
 
+function aggregateRealtimeRows(rows, primaryKeyLookup) {
+  const registry = new Map();
+
+  rows.forEach((row) => {
+    const dateRange = String(row.dateRange || row.date || row.weekEnding || "").trim();
+    const person = resolvePerson(primaryKeyLookup, row.email, row.agentName);
+    const aggregateIdentity = normalizeEmail(person.email) || person.identity || normalizeDisplayName(row.agentName);
+    if (!dateRange || !aggregateIdentity) return;
+
+    const key = `${dateRange}__${aggregateIdentity}`;
+    const existing = registry.get(key) || {
+      ...row,
+      dateRange,
+      date: row.date || "",
+      agentName: person.displayName || normalizeDisplayName(row.agentName),
+      email: person.email || normalizeEmail(row.email),
+      firstTimeCallerTotal: 0,
+      transferCountTotal: 0,
+      inboundCallsTotal: 0,
+      inboundMinutesTotalSeconds: 0,
+      holdTimeTotalSeconds: 0,
+      lastUpdatedAt: null,
+      lastUpdated: "",
+    };
+
+    existing.firstTimeCallerTotal += safeNumber(row.firstTimeCaller) || 0;
+    existing.transferCountTotal += safeNumber(row.transferCount) || 0;
+    existing.inboundCallsTotal += safeNumber(row.inboundCalls) || 0;
+    existing.inboundMinutesTotalSeconds += secondsFromDuration(row.inboundMinutes);
+    existing.holdTimeTotalSeconds += secondsFromDuration(row.holdTime);
+
+    const parsedLastUpdated = parseTimestamp(row.lastUpdated);
+    if (
+      parsedLastUpdated instanceof Date &&
+      !Number.isNaN(parsedLastUpdated.getTime()) &&
+      (!existing.lastUpdatedAt || parsedLastUpdated.getTime() >= existing.lastUpdatedAt.getTime())
+    ) {
+      existing.lastUpdatedAt = parsedLastUpdated;
+      existing.lastUpdated = row.lastUpdated || existing.lastUpdated;
+    }
+
+    registry.set(key, existing);
+  });
+
+  return [...registry.values()].map((row) => ({
+    ...row,
+    firstTimeCaller: row.firstTimeCallerTotal ? String(row.firstTimeCallerTotal) : "",
+    transferCount: row.transferCountTotal ? String(row.transferCountTotal) : "",
+    inboundCalls: row.inboundCallsTotal ? String(row.inboundCallsTotal) : "",
+    inboundMinutes: formatDurationFromSeconds(row.inboundMinutesTotalSeconds),
+    holdTime: formatDurationFromSeconds(row.holdTimeTotalSeconds),
+    lastUpdated: row.lastUpdated || (row.lastUpdatedAt ? row.lastUpdatedAt.toLocaleString("en-US") : ""),
+  }));
+}
+
 function mergeRows(rows, registry, sourceName, primaryKeyLookup) {
   rows.forEach((row) => {
-    const weekEnding = row.weekEnding;
+    const weekEnding = String(row.dateRange || row.date || row.weekEnding || "").trim();
     const email = row.email;
     const person = resolvePerson(primaryKeyLookup, email, row.agentName);
     const key = makeKey(person.identity, weekEnding);
@@ -276,10 +362,10 @@ function mergeRows(rows, registry, sourceName, primaryKeyLookup) {
       key,
       identity: person.identity,
       weekEnding,
-      weekDate: parseWeekEnding(weekEnding),
+      weekDate: parseDateRange(weekEnding),
       monthLabel: "",
       email: person.email || normalizeEmail(email),
-      dateRange: row.dateRange || "",
+      dateRange: weekEnding,
       agentName: person.displayName || "",
       sourceFlags: {},
     };
@@ -288,9 +374,14 @@ function mergeRows(rows, registry, sourceName, primaryKeyLookup) {
     existing.identity = person.identity;
     existing.agentName = person.displayName || normalizeDisplayName(row.agentName || existing.agentName);
     existing.email = person.email || normalizeEmail(email);
-    existing.dateRange = existing.dateRange || row.dateRange || "";
+    existing.weekEnding = existing.weekEnding || weekEnding;
+    existing.weekDate = existing.weekDate || parseDateRange(weekEnding);
+    existing.dateRange = existing.dateRange || weekEnding;
     existing.monthLabel = existing.weekDate ? titleCaseMonth(existing.weekDate) : "Unknown";
     existing.sourceFlags[sourceName] = true;
+    if (row.lastUpdated) {
+      existing[`${sourceName}LastUpdated`] = row.lastUpdated;
+    }
     registry.set(key, existing);
   });
 }
@@ -330,14 +421,16 @@ export function getBottomPerformers(records, limit = 5) {
 export function buildKpiDataset(rawDatasets) {
   const registry = new Map();
   const primaryKeyLookup = buildPrimaryKeyLookup(rawDatasets.primaryKey || []);
+  const aggregatedRealtimeRows = aggregateRealtimeRows(rawDatasets.realtime || [], primaryKeyLookup);
 
-  ["admits", "transfer", "aht", "qa", "attendance"].forEach((sourceName) => {
+  mergeRows(aggregatedRealtimeRows, registry, "realtime", primaryKeyLookup);
+  ["admits", "qa", "attendance"].forEach((sourceName) => {
     mergeRows(rawDatasets[sourceName] || [], registry, sourceName, primaryKeyLookup);
   });
 
   const records = [...registry.values()]
     .map((record) => {
-      const admitsCount = safeNumber(record.admitsCount) ?? 0;
+      const admitsCount = safeNumber(record.admitsCount);
       const firstTimeCaller = safeNumber(record.firstTimeCaller);
       const transferCount = safeNumber(record.transferCount);
       const inboundCalls = safeNumber(record.inboundCalls);
@@ -354,6 +447,8 @@ export function buildKpiDataset(rawDatasets) {
       const performanceScore = calculatePerformanceScore(transferScore, admitsScore, ahtScore);
       const overallComposition = getOverallComposition(performanceScore, attendanceScore, qaScore);
       const overallScore = calculateOverallScore(performanceScore, attendanceScore, qaScore);
+      const admitsLastUpdatedAt = parseTimestamp(record.admitsLastUpdated);
+      const qaLastUpdatedAt = parseTimestamp(record.qaLastUpdated);
 
       return {
         ...record,
@@ -381,6 +476,10 @@ export function buildKpiDataset(rawDatasets) {
         overallScore,
         overallIncludesQa: overallComposition.includesQa,
         overallWeights: overallComposition.weights,
+        admitsLastUpdatedAt,
+        admitsLastUpdatedDisplay: formatLastUpdatedDisplay(record.admitsLastUpdated, admitsLastUpdatedAt),
+        qaLastUpdatedAt,
+        qaLastUpdatedDisplay: formatLastUpdatedDisplay(record.qaLastUpdated, qaLastUpdatedAt),
       };
     })
     .sort((left, right) => {
@@ -435,13 +534,14 @@ export function buildKpiDataset(rawDatasets) {
 
 export function buildRealtimeDataset(rawDatasets) {
   const primaryKeyLookup = buildPrimaryKeyLookup(rawDatasets.primaryKey || []);
-  const records = (rawDatasets.realtime || [])
+  const aggregatedRealtimeRows = aggregateRealtimeRows(rawDatasets.realtime || [], primaryKeyLookup);
+  const records = aggregatedRealtimeRows
     .map((row) => {
-      const dateValue = String(row.dateRange || "").trim();
+      const dateValue = String(row.dateRange || row.date || "").trim();
       if (!dateValue) return null;
 
       const person = resolvePerson(primaryKeyLookup, row.email, row.agentName);
-      const weekDate = parseWeekEnding(dateValue);
+      const weekDate = parseDateRange(dateValue);
       if (!person.identity || !weekDate) return null;
 
       const firstTimeCaller = safeNumber(row.firstTimeCaller);
@@ -454,7 +554,7 @@ export function buildRealtimeDataset(rawDatasets) {
       const performanceScore = calculatePerformanceScore(transferScore, null, ahtScore);
       const overallComposition = getOverallComposition(performanceScore, null, null);
       const overallScore = calculateOverallScore(performanceScore, null, null);
-      const lastUpdatedAt = parseTimestamp(row.lastUpdated);
+      const lastUpdatedAt = row.lastUpdatedAt instanceof Date ? row.lastUpdatedAt : parseTimestamp(row.lastUpdated);
 
       return {
         key: makeKey(person.identity, dateValue),
@@ -493,7 +593,7 @@ export function buildRealtimeDataset(rawDatasets) {
         overallWeights: overallComposition.weights,
         lastUpdated: row.lastUpdated || "",
         lastUpdatedAt,
-        lastUpdatedDisplay: row.lastUpdated || "N/A",
+        lastUpdatedDisplay: formatLastUpdatedDisplay(row.lastUpdated, lastUpdatedAt),
       };
     })
     .filter(Boolean)
@@ -511,10 +611,14 @@ export function buildRealtimeDataset(rawDatasets) {
         .filter((value) => value instanceof Date && !Number.isNaN(value.getTime()))
         .sort((left, right) => left.getTime() - right.getTime())
         .at(-1) || null;
+      const latestLastUpdatedRecord = [...items]
+        .filter((item) => item.lastUpdatedAt instanceof Date && !Number.isNaN(item.lastUpdatedAt.getTime()))
+        .sort((left, right) => left.lastUpdatedAt.getTime() - right.lastUpdatedAt.getTime())
+        .at(-1) || null;
 
       return {
         weekEnding,
-        weekDate: items[0]?.weekDate || parseWeekEnding(weekEnding),
+        weekDate: items[0]?.weekDate || parseDateRange(weekEnding),
         monthLabel: items[0]?.monthLabel || "Unknown",
         transferScore: average(items, (item) => item.transferScore),
         admitsScore: null,
@@ -541,7 +645,7 @@ export function buildRealtimeDataset(rawDatasets) {
         qaPercentValue: null,
         agentCount: items.length,
         lastUpdatedAt: latestLastUpdated,
-        lastUpdatedDisplay: latestLastUpdated ? latestLastUpdated.toLocaleString("en-US") : "N/A",
+        lastUpdatedDisplay: formatLastUpdatedDisplay(latestLastUpdatedRecord?.lastUpdated, latestLastUpdated),
       };
     })
     .sort((left, right) => (left.weekDate?.getTime() ?? 0) - (right.weekDate?.getTime() ?? 0));
@@ -550,6 +654,10 @@ export function buildRealtimeDataset(rawDatasets) {
     .map((record) => record.lastUpdatedAt)
     .filter((value) => value instanceof Date && !Number.isNaN(value.getTime()))
     .sort((left, right) => left.getTime() - right.getTime())
+    .at(-1) || null;
+  const latestLastUpdatedRecord = [...records]
+    .filter((record) => record.lastUpdatedAt instanceof Date && !Number.isNaN(record.lastUpdatedAt.getTime()))
+    .sort((left, right) => left.lastUpdatedAt.getTime() - right.lastUpdatedAt.getTime())
     .at(-1) || null;
 
   return {
@@ -561,6 +669,6 @@ export function buildRealtimeDataset(rawDatasets) {
       left.localeCompare(right)
     ),
     lastUpdatedAt: latestLastUpdated,
-    lastUpdatedDisplay: latestLastUpdated ? latestLastUpdated.toLocaleString("en-US") : "N/A",
+    lastUpdatedDisplay: formatLastUpdatedDisplay(latestLastUpdatedRecord?.lastUpdated, latestLastUpdated),
   };
 }

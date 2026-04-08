@@ -39,6 +39,15 @@ const FOCUS_METRICS = {
     { label: "AHT", scoreKey: "ahtScore", rawType: "ahtSeconds", color: CHART_COLORS.aht },
     { label: "Performance", scoreKey: "performanceScore", rawType: "performanceScore", color: CHART_COLORS.overall },
   ],
+  transfer: [
+    { label: "Transfer", scoreKey: "transferScore", rawType: "transferRatePercent", color: CHART_COLORS.transfer },
+  ],
+  admits: [
+    { label: "Admits", scoreKey: "admitsScore", rawType: "admitsCount", color: CHART_COLORS.admits },
+  ],
+  aht: [
+    { label: "AHT", scoreKey: "ahtScore", rawType: "ahtSeconds", color: CHART_COLORS.aht },
+  ],
   realtime: [
     { label: "Transfer", scoreKey: "transferScore", rawType: "transferRatePercent", color: CHART_COLORS.transfer },
     { label: "Admits", scoreKey: "admitsScore", rawType: "admitsCount", color: CHART_COLORS.admits },
@@ -898,8 +907,8 @@ export function renderVarianceChart(canvas, chart, weeklyAverages, focus = "perf
               const prefix = variance > 0 ? "+" : "";
               return [
                 `Variance: ${prefix}${variance.toFixed(2)}`,
-                `Selected week: ${currentValue === null || currentValue === undefined ? "N/A" : Number(currentValue).toFixed(2)}`,
-                `Previous week: ${previousValue === null || previousValue === undefined ? "N/A" : Number(previousValue).toFixed(2)}`,
+                `Selected range: ${currentValue === null || currentValue === undefined ? "N/A" : Number(currentValue).toFixed(2)}`,
+                `Previous range: ${previousValue === null || previousValue === undefined ? "N/A" : Number(previousValue).toFixed(2)}`,
               ];
             },
           },
@@ -1113,7 +1122,7 @@ export function renderComparisonChart(canvas, chart, weeklyAverages, focus = "pe
       labels: kpiLabels.map((label) => getMobileKpiLabel(label)),
       datasets: [
         {
-          label: previousWeek?.weekEnding || "Previous Week",
+          label: previousWeek?.weekEnding || "Previous Range",
           data: kpiKeys.map((key) => previousWeek?.[key] ?? null),
           backgroundColor: colors.map((color) => hexToRgba(color, 0.3)),
           borderColor: colors.map((color) => hexToRgba(color, 0.55)),
@@ -1124,7 +1133,7 @@ export function renderComparisonChart(canvas, chart, weeklyAverages, focus = "pe
           maxBarThickness: 30,
         },
         {
-          label: currentWeek?.weekEnding || "Selected Week",
+          label: currentWeek?.weekEnding || "Selected Range",
           data: kpiKeys.map((key) => currentWeek?.[key] ?? null),
           backgroundColor: colors,
           borderColor: colors,

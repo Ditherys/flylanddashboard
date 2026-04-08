@@ -133,7 +133,7 @@
           <p class="panel-label">Dashboard Focus</p>
           <h2>Team Leader View</h2>
           <p id="dataStatusText">
-            Loading KPI sources and preparing weekly scorecards.
+            Loading KPI sources and preparing date-range scorecards.
           </p>
         </div>
       </aside>
@@ -149,11 +149,12 @@
             </div>
             <div class="header-brand-copy">
               <span class="header-brand-kicker">KPI Dashboard</span>
-              <p>Weekly scorecards with team-lead ready insights.</p>
+              <p>Date-range scorecards with team-lead ready insights.</p>
               <div class="dashboard-focus-switch" role="tablist" aria-label="Dashboard KPI focus">
-                <button class="dashboard-focus-button" data-dashboard-focus="all" type="button" role="tab" aria-selected="false"><span class="focus-full">All</span><span class="focus-short">All</span></button>
-                <button class="dashboard-focus-button is-active" data-dashboard-focus="performance" type="button" role="tab" aria-selected="true"><span class="focus-full">Performance</span><span class="focus-short">Perf</span></button>
-                <button class="dashboard-focus-button" data-dashboard-focus="realtime" type="button" role="tab" aria-selected="false"><span class="focus-full">Real-Time Performance</span><span class="focus-short">Live Perf</span></button>
+                <button class="dashboard-focus-button is-active" data-dashboard-focus="all" type="button" role="tab" aria-selected="true"><span class="focus-full">All</span><span class="focus-short">All</span></button>
+                <button class="dashboard-focus-button" data-dashboard-focus="transfer" type="button" role="tab" aria-selected="false"><span class="focus-full">Transfer</span><span class="focus-short">TR</span></button>
+                <button class="dashboard-focus-button" data-dashboard-focus="admits" type="button" role="tab" aria-selected="false"><span class="focus-full">Admits</span><span class="focus-short">AD</span></button>
+                <button class="dashboard-focus-button" data-dashboard-focus="aht" type="button" role="tab" aria-selected="false"><span class="focus-full">AHT</span><span class="focus-short">AHT</span></button>
                 <button class="dashboard-focus-button" data-dashboard-focus="attendance" type="button" role="tab" aria-selected="false"><span class="focus-full">Attendance</span><span class="focus-short">Attend</span></button>
                 <button class="dashboard-focus-button" data-dashboard-focus="qa" type="button" role="tab" aria-selected="false"><span class="focus-full">Quality Assurance</span><span class="focus-short">Quality</span></button>
               </div>
@@ -169,10 +170,6 @@
               <span class="meta-label">Data Source</span>
               <span>Google Sheets CSV</span>
             </div>
-            <div class="meta-pill">
-              <span class="meta-label">Deployment</span>
-              <span>Netlify Ready</span>
-            </div>
             <div class="meta-pill" id="realtimeLastUpdatedPill" hidden>
               <span class="meta-label">Last Updated</span>
               <span id="realtimeLastUpdatedText">--</span>
@@ -187,7 +184,7 @@
               <strong id="mobileStatusMonth">--</strong>
             </div>
             <div class="mobile-home-status-pill">
-              <span class="mobile-home-status-label">Week</span>
+              <span class="mobile-home-status-label">Range</span>
               <strong id="mobileStatusWeek">--</strong>
             </div>
             <div class="mobile-home-status-pill">
@@ -200,7 +197,7 @@
               <span class="mobile-home-icon" aria-hidden="true"></span>
               <span class="mobile-home-label">Scorecards</span>
               <strong>View Summary</strong>
-              <p>Open the KPI scorecards and week-over-week signals first.</p>
+              <p>Open the KPI scorecards and range-over-range signals first.</p>
             </button>
             <button class="mobile-home-card mobile-home-card-rankings mobile-home-card-primary" data-mobile-target="agentsSection" type="button">
               <span class="mobile-home-icon" aria-hidden="true"></span>
@@ -218,7 +215,7 @@
               <span class="mobile-home-icon" aria-hidden="true"></span>
               <span class="mobile-home-label">Trends</span>
               <strong>Trend Charts</strong>
-              <p>See score movement and weekly comparisons.</p>
+              <p>See score movement and date-range comparisons.</p>
             </button>
             <button id="mobileLegendLauncher" class="mobile-home-card mobile-home-card-soft mobile-home-card-legend" type="button">
               <span class="mobile-home-icon" aria-hidden="true"></span>
@@ -230,46 +227,109 @@
               <span class="mobile-home-icon" aria-hidden="true"></span>
               <span class="mobile-home-label">Controls</span>
               <strong>Filters</strong>
-              <p>Open month, week, and agent filters.</p>
+              <p>Open month, date range, and agent filters.</p>
             </button>
           </div>
         </section>
 
-        <section class="top-filters card" id="filtersSection">
-          <div class="top-filters-header">
-            <div>
-              <p class="eyebrow">Quick Filters</p>
-              <h3 id="topFiltersTitle">Filter by month, week, and agent</h3>
-            </div>
-          </div>
-          <div class="top-filters-mobile-toggle">
-            <button id="filtersCollapseToggle" class="table-collapse-button" type="button" aria-expanded="false" aria-controls="filtersContentArea">
-              Show Filters
-            </button>
-          </div>
-          <div class="filters-content-area" id="filtersContentArea">
-            <div class="top-filters-grid">
-              <label id="monthFilterField">
-                <span id="monthFilterLabel">Month</span>
-                <select id="monthFilter"></select>
-              </label>
-              <label id="weekFilterField">
-                <span id="weekFilterLabel">Week Ending</span>
-                <select id="weekFilter"></select>
-                <input id="dateFilter" type="date" hidden />
-              </label>
-              <label id="agentFilterField">
-                <span id="agentFilterLabel">Agent</span>
-                <select id="agentFilter"></select>
-              </label>
-              <div class="top-filter-action">
-                <button id="resetFilters" class="primary-button top-reset-button" type="button">
-                  Reset Filters
-                </button>
+        <div class="focus-top-section" id="focusTopSection">
+          <section class="summary-grid" id="summaryCards">
+            <article class="summary-card card" data-kpi="overall">
+              <div class="card-topline">
+                <span id="overallCardTitle">Performance Score</span>
+                <span class="score-chip" id="overallCardBadge">-</span>
+              </div>
+              <strong id="overallScoreValue">--</strong>
+              <p class="summary-subtext" id="overallScoreRaw">Transfer + Admits + AHT</p>
+              <p id="overallScoreDelta">Date-range comparison pending</p>
+            </article>
+
+            <article class="summary-card card" data-kpi="transfer" data-focus-group="performance">
+              <div class="card-topline">
+                <span>Transfer Score</span>
+                <span class="score-chip" id="transferCardBadge">-</span>
+              </div>
+              <strong id="transferScoreValue">--</strong>
+              <p class="summary-subtext" id="transferScoreRaw">Transfer rate pending</p>
+              <p id="transferScoreDelta">Date-range comparison pending</p>
+            </article>
+
+            <article class="summary-card card" data-kpi="admits" data-focus-group="performance">
+              <div class="card-topline">
+                <span>Admits Score</span>
+                <span class="score-chip" id="admitsCardBadge">-</span>
+              </div>
+              <strong id="admitsScoreValue">--</strong>
+              <p class="summary-subtext" id="admitsScoreRaw">Admits count pending</p>
+              <p id="admitsScoreDelta">Date-range comparison pending</p>
+            </article>
+
+            <article class="summary-card card" data-kpi="aht" data-focus-group="performance">
+              <div class="card-topline">
+                <span>AHT Score</span>
+                <span class="score-chip" id="ahtCardBadge">-</span>
+              </div>
+              <strong id="ahtScoreValue">--</strong>
+              <p class="summary-subtext" id="ahtScoreRaw">Average handle time pending</p>
+              <p id="ahtScoreDelta">Date-range comparison pending</p>
+            </article>
+
+            <article class="summary-card card" data-kpi="attendance" data-focus-group="attendance">
+              <div class="card-topline">
+                <span>Attendance Score</span>
+                <span class="score-chip" id="attendanceCardBadge">-</span>
+              </div>
+              <strong id="attendanceScoreValue">--</strong>
+              <p class="summary-subtext" id="attendanceScoreRaw">Attendance percent pending</p>
+              <p id="attendanceScoreDelta">Date-range comparison pending</p>
+            </article>
+
+            <article class="summary-card card" data-kpi="qa" data-focus-group="qa">
+              <div class="card-topline">
+                <span>Quality Assurance Score</span>
+                <span class="score-chip" id="qaCardBadge">-</span>
+              </div>
+              <strong id="qaScoreValue">--</strong>
+              <p class="summary-subtext" id="qaScoreRaw">Quality assurance percent pending</p>
+              <p id="qaScoreDelta">Date-range comparison pending</p>
+            </article>
+          </section>
+
+          <section class="top-filters card" id="filtersSection">
+            <div class="top-filters-header">
+              <div>
+                <p class="eyebrow">Quick Filters</p>
+                <h3 id="topFiltersTitle">Filter by month, date range, and agent</h3>
               </div>
             </div>
-          </div>
-        </section>
+            <div class="top-filters-mobile-toggle">
+              <button id="filtersCollapseToggle" class="table-collapse-button" type="button" aria-expanded="false" aria-controls="filtersContentArea">
+                Show Filters
+              </button>
+            </div>
+            <div class="filters-content-area" id="filtersContentArea">
+              <div class="top-filters-grid">
+                <label id="monthFilterField">
+                  <span id="monthFilterLabel">Month</span>
+                  <select id="monthFilter"></select>
+                </label>
+                <label id="weekFilterField">
+                  <span id="weekFilterLabel">Date Range</span>
+                  <select id="weekFilter"></select>
+                </label>
+                <label id="agentFilterField">
+                  <span id="agentFilterLabel">Agent</span>
+                  <select id="agentFilter"></select>
+                </label>
+                <div class="top-filter-action">
+                  <button id="resetFilters" class="primary-button top-reset-button" type="button">
+                    Reset Filters
+                  </button>
+                </div>
+              </div>
+            </div>
+          </section>
+        </div>
 
         <section class="insight-strip" id="overviewSection">
           <article class="insight-card card">
@@ -289,70 +349,8 @@
           </article>
           <article class="insight-card card">
             <span class="insight-label">Momentum</span>
-            <strong id="momentumInsightTitle">Preparing week trend</strong>
-            <p id="momentumInsightBody">Week-over-week movement will appear here.</p>
-          </article>
-        </section>
-
-        <section class="summary-grid" id="summaryCards">
-          <article class="summary-card card" data-kpi="overall">
-            <div class="card-topline">
-              <span id="overallCardTitle">Performance Score</span>
-              <span class="score-chip" id="overallCardBadge">-</span>
-            </div>
-            <strong id="overallScoreValue">--</strong>
-            <p class="summary-subtext" id="overallScoreRaw">Transfer + Admits + AHT</p>
-            <p id="overallScoreDelta">Week-over-week pending</p>
-          </article>
-
-          <article class="summary-card card" data-kpi="transfer" data-focus-group="performance">
-            <div class="card-topline">
-              <span>Transfer Score</span>
-              <span class="score-chip" id="transferCardBadge">-</span>
-            </div>
-            <strong id="transferScoreValue">--</strong>
-            <p class="summary-subtext" id="transferScoreRaw">Transfer rate pending</p>
-            <p id="transferScoreDelta">Week-over-week pending</p>
-          </article>
-
-          <article class="summary-card card" data-kpi="admits" data-focus-group="performance">
-            <div class="card-topline">
-              <span>Admits Score</span>
-              <span class="score-chip" id="admitsCardBadge">-</span>
-            </div>
-            <strong id="admitsScoreValue">--</strong>
-            <p class="summary-subtext" id="admitsScoreRaw">Admits count pending</p>
-            <p id="admitsScoreDelta">Week-over-week pending</p>
-          </article>
-
-          <article class="summary-card card" data-kpi="aht" data-focus-group="performance">
-            <div class="card-topline">
-              <span>AHT Score</span>
-              <span class="score-chip" id="ahtCardBadge">-</span>
-            </div>
-            <strong id="ahtScoreValue">--</strong>
-            <p class="summary-subtext" id="ahtScoreRaw">Average handle time pending</p>
-            <p id="ahtScoreDelta">Week-over-week pending</p>
-          </article>
-
-          <article class="summary-card card" data-kpi="attendance" data-focus-group="attendance">
-            <div class="card-topline">
-              <span>Attendance Score</span>
-              <span class="score-chip" id="attendanceCardBadge">-</span>
-            </div>
-            <strong id="attendanceScoreValue">--</strong>
-            <p class="summary-subtext" id="attendanceScoreRaw">Attendance percent pending</p>
-            <p id="attendanceScoreDelta">Week-over-week pending</p>
-          </article>
-
-          <article class="summary-card card" data-kpi="qa" data-focus-group="qa">
-            <div class="card-topline">
-              <span>Quality Assurance Score</span>
-              <span class="score-chip" id="qaCardBadge">-</span>
-            </div>
-            <strong id="qaScoreValue">--</strong>
-            <p class="summary-subtext" id="qaScoreRaw">Quality assurance percent pending</p>
-            <p id="qaScoreDelta">Week-over-week pending</p>
+            <strong id="momentumInsightTitle">Preparing trend view</strong>
+            <p id="momentumInsightBody">Date-range movement will appear here.</p>
           </article>
         </section>
 
@@ -368,11 +366,12 @@
               <p class="table-section-subnote" id="tableSectionSubnote">
                 Focused on transfer, admits, and AHT rows for the selected scope.
               </p>
+              <p class="table-debug-line" id="tableDebugLine" hidden></p>
               <p class="table-row-hint" id="tableRowHint">Click any row to open the detailed KPI breakdown.</p>
             </div>
             <div class="table-actions">
               <label class="search-field table-search" for="tableSearch">
-                <span>Search agent or week</span>
+                <span>Search agent or date range</span>
                 <input
                   id="tableSearch"
                   name="tableSearch"
@@ -425,12 +424,12 @@
           <article class="agent-focus-card card">
             <span class="agent-focus-label">Strongest KPI</span>
             <strong id="agentStrongestValue">--</strong>
-            <p id="agentStrongestNarrative">Best-performing KPI this week.</p>
+            <p id="agentStrongestNarrative">Best-performing KPI in the latest date range.</p>
           </article>
           <article class="agent-focus-card card">
             <span class="agent-focus-label">Weakest KPI</span>
             <strong id="agentWeakestValue">--</strong>
-            <p id="agentWeakestNarrative">Most urgent KPI to coach this week.</p>
+            <p id="agentWeakestNarrative">Most urgent KPI to coach in the latest date range.</p>
           </article>
         </section>
 
@@ -439,10 +438,10 @@
             <div class="section-heading">
               <div>
                 <p class="eyebrow">Trend Analysis</p>
-                <h3 id="trendSectionTitle">Weekly KPI trends</h3>
+                <h3 id="trendSectionTitle">KPI trends</h3>
               </div>
             </div>
-            <canvas id="trendChart" aria-label="Weekly KPI trends" role="img"></canvas>
+            <canvas id="trendChart" aria-label="KPI trends" role="img"></canvas>
           </article>
         </section>
 
@@ -451,11 +450,11 @@
           <article class="chart-card card" id="snapshotCard">
             <div class="section-heading">
               <div>
-                <p class="eyebrow">Selected Week</p>
+                <p class="eyebrow">Selected Range</p>
                 <h3 id="snapshotSectionTitle">KPI score snapshot</h3>
               </div>
             </div>
-            <canvas id="weekScoreChart" aria-label="Selected week KPI scores" role="img"></canvas>
+            <canvas id="weekScoreChart" aria-label="Selected date range KPI scores" role="img"></canvas>
           </article>
 
           <article class="chart-card card" id="contributionCard">
@@ -482,11 +481,11 @@
             <div class="section-heading">
               <div>
                 <p class="eyebrow">Comparison</p>
-                <h3 id="comparisonTitle">Selected week vs previous week</h3>
-                <p class="chart-subnote" id="comparisonSubnote">Comparing the latest available week against the previous week.</p>
+                <h3 id="comparisonTitle">Selected date range vs previous date range</h3>
+                <p class="chart-subnote" id="comparisonSubnote">Comparing the latest available date range against the previous range.</p>
               </div>
             </div>
-            <canvas id="comparisonChart" aria-label="Week over week comparison" role="img"></canvas>
+            <canvas id="comparisonChart" aria-label="Date range comparison" role="img"></canvas>
           </article>
         </section>
 

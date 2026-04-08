@@ -1138,6 +1138,23 @@ select {
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
 }
 
+#appShell[data-dashboard-focus="transfer"] #focusTopSection,
+#appShell[data-dashboard-focus="admits"] #focusTopSection,
+#appShell[data-dashboard-focus="aht"] #focusTopSection,
+#appShell[data-dashboard-focus="attendance"] #focusTopSection,
+#appShell[data-dashboard-focus="qa"] #focusTopSection {
+  grid-template-columns: minmax(280px, 0.9fr) minmax(340px, 1.1fr);
+  align-items: start;
+}
+
+#appShell[data-dashboard-focus="transfer"] #summaryCards,
+#appShell[data-dashboard-focus="admits"] #summaryCards,
+#appShell[data-dashboard-focus="aht"] #summaryCards,
+#appShell[data-dashboard-focus="attendance"] #summaryCards,
+#appShell[data-dashboard-focus="qa"] #summaryCards {
+  grid-template-columns: 1fr;
+}
+
 #appShell[data-dashboard-focus="all"] #rawMetricsGrid {
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
 }
@@ -1158,14 +1175,118 @@ select {
   grid-template-columns: repeat(5, minmax(0, 1fr));
 }
 
+#appShell[data-dashboard-focus="transfer"] #summaryCards,
+#appShell[data-dashboard-focus="admits"] #summaryCards,
+#appShell[data-dashboard-focus="aht"] #summaryCards,
 #appShell[data-dashboard-focus="attendance"] #summaryCards,
 #appShell[data-dashboard-focus="qa"] #summaryCards {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: 1fr;
+}
+
+#appShell[data-dashboard-focus="transfer"] #focusTopSection,
+#appShell[data-dashboard-focus="admits"] #focusTopSection,
+#appShell[data-dashboard-focus="aht"] #focusTopSection,
+#appShell[data-dashboard-focus="attendance"] #focusTopSection,
+#appShell[data-dashboard-focus="qa"] #focusTopSection {
+  grid-template-columns: minmax(250px, 0.78fr) minmax(820px, 1.92fr);
+  align-items: start;
 }
 
 #appShell[data-dashboard-focus="attendance"] #rawMetricsGrid,
 #appShell[data-dashboard-focus="qa"] #rawMetricsGrid {
   grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+#appShell[data-dashboard-focus="transfer"] #filtersSection,
+#appShell[data-dashboard-focus="admits"] #filtersSection,
+#appShell[data-dashboard-focus="aht"] #filtersSection,
+#appShell[data-dashboard-focus="attendance"] #filtersSection,
+#appShell[data-dashboard-focus="qa"] #filtersSection {
+  padding: 0.56rem 0.68rem;
+}
+
+#appShell[data-dashboard-focus="transfer"] .top-filters-grid,
+#appShell[data-dashboard-focus="admits"] .top-filters-grid,
+#appShell[data-dashboard-focus="aht"] .top-filters-grid,
+#appShell[data-dashboard-focus="attendance"] .top-filters-grid,
+#appShell[data-dashboard-focus="qa"] .top-filters-grid {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr) auto;
+}
+
+#appShell[data-dashboard-focus="transfer"] .top-filter-action,
+#appShell[data-dashboard-focus="admits"] .top-filter-action,
+#appShell[data-dashboard-focus="aht"] .top-filter-action,
+#appShell[data-dashboard-focus="attendance"] .top-filter-action,
+#appShell[data-dashboard-focus="qa"] .top-filter-action {
+  grid-column: auto;
+}
+
+#appShell[data-dashboard-focus="transfer"] .top-reset-button,
+#appShell[data-dashboard-focus="admits"] .top-reset-button,
+#appShell[data-dashboard-focus="aht"] .top-reset-button,
+#appShell[data-dashboard-focus="attendance"] .top-reset-button,
+#appShell[data-dashboard-focus="qa"] .top-reset-button {
+  min-width: 108px;
+}
+
+#appShell[data-dashboard-focus="transfer"] #snapshotSection,
+#appShell[data-dashboard-focus="admits"] #snapshotSection,
+#appShell[data-dashboard-focus="aht"] #snapshotSection,
+#appShell[data-dashboard-focus="attendance"] #snapshotSection,
+#appShell[data-dashboard-focus="qa"] #snapshotSection {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+#appShell[data-dashboard-focus="transfer"] #comparisonSection,
+#appShell[data-dashboard-focus="admits"] #comparisonSection,
+#appShell[data-dashboard-focus="aht"] #comparisonSection,
+#appShell[data-dashboard-focus="attendance"] #comparisonSection,
+#appShell[data-dashboard-focus="qa"] #comparisonSection,
+#appShell[data-dashboard-focus="transfer"] #agentsSection,
+#appShell[data-dashboard-focus="admits"] #agentsSection,
+#appShell[data-dashboard-focus="aht"] #agentsSection,
+#appShell[data-dashboard-focus="attendance"] #agentsSection,
+#appShell[data-dashboard-focus="qa"] #agentsSection,
+#appShell[data-dashboard-focus="transfer"] #distributionSection,
+#appShell[data-dashboard-focus="admits"] #distributionSection,
+#appShell[data-dashboard-focus="aht"] #distributionSection,
+#appShell[data-dashboard-focus="attendance"] #distributionSection,
+#appShell[data-dashboard-focus="qa"] #distributionSection {
+  grid-column: auto;
+}
+
+#appShell[data-dashboard-focus="transfer"] #performersSection,
+#appShell[data-dashboard-focus="admits"] #performersSection,
+#appShell[data-dashboard-focus="aht"] #performersSection,
+#appShell[data-dashboard-focus="attendance"] #performersSection,
+#appShell[data-dashboard-focus="qa"] #performersSection {
+  grid-template-columns: 1fr;
+  align-items: stretch;
+}
+
+#appShell[data-dashboard-focus="transfer"] #performersSection .chart-card,
+#appShell[data-dashboard-focus="admits"] #performersSection .chart-card,
+#appShell[data-dashboard-focus="aht"] #performersSection .chart-card,
+#appShell[data-dashboard-focus="attendance"] #performersSection .chart-card,
+#appShell[data-dashboard-focus="qa"] #performersSection .chart-card {
+  min-height: 0;
+  height: 100%;
+}
+
+#appShell[data-dashboard-focus="transfer"] #distributionSection,
+#appShell[data-dashboard-focus="admits"] #distributionSection,
+#appShell[data-dashboard-focus="aht"] #distributionSection,
+#appShell[data-dashboard-focus="attendance"] #distributionSection,
+#appShell[data-dashboard-focus="qa"] #distributionSection {
+  margin-top: 0;
+}
+
+#appShell[data-dashboard-focus="transfer"] #distributionSection .distribution-grid,
+#appShell[data-dashboard-focus="admits"] #distributionSection .distribution-grid,
+#appShell[data-dashboard-focus="aht"] #distributionSection .distribution-grid,
+#appShell[data-dashboard-focus="attendance"] #distributionSection .distribution-grid,
+#appShell[data-dashboard-focus="qa"] #distributionSection .distribution-grid {
+  grid-template-columns: 1fr;
 }
 
 .meta-pill[hidden] {
@@ -1223,12 +1344,13 @@ select {
   padding: 1rem;
 }
 
-#filtersSection {
-  order: 1;
+.focus-top-section {
+  display: grid;
+  gap: 0.85rem;
 }
 
-#summaryCards {
-  order: 2;
+#focusTopSection {
+  order: 1;
 }
 
 #monthlySection {
@@ -1407,8 +1529,7 @@ select {
   align-items: end;
 }
 
-.top-filters-grid select,
-.top-filters-grid input[type="date"] {
+.top-filters-grid select {
   width: 100%;
   min-height: 36px;
   padding: 0.42rem 0.72rem;
@@ -1419,8 +1540,7 @@ select {
   outline: none;
 }
 
-.top-filters-grid select:focus,
-.top-filters-grid input[type="date"]:focus {
+.top-filters-grid select:focus {
   border-color: rgba(18, 58, 111, 0.35);
   box-shadow: 0 0 0 4px rgba(18, 58, 111, 0.08);
 }
@@ -2126,7 +2246,7 @@ select {
 }
 
 .distribution-item canvas {
-  height: 180px !important;
+  height: 250px !important;
   margin-top: 0;
 }
 
@@ -2310,6 +2430,18 @@ select {
   border-top: 4px solid rgba(31, 41, 55, 0.9);
 }
 
+#appShell[data-dashboard-focus="transfer"] #tableSection {
+  border-top: 4px solid rgba(59, 130, 246, 0.88);
+}
+
+#appShell[data-dashboard-focus="admits"] #tableSection {
+  border-top: 4px solid rgba(16, 185, 129, 0.88);
+}
+
+#appShell[data-dashboard-focus="aht"] #tableSection {
+  border-top: 4px solid rgba(245, 158, 11, 0.88);
+}
+
 #appShell[data-dashboard-focus="realtime"] #tableSection {
   border-top: 4px solid rgba(59, 130, 246, 0.88);
 }
@@ -2356,6 +2488,13 @@ select {
   font-weight: 700;
 }
 
+.table-debug-line {
+  margin: 0.2rem 0 0;
+  color: #b45309;
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
 .table-search span {
   color: var(--muted);
 }
@@ -2388,6 +2527,12 @@ select {
   align-items: center;
   gap: 0.45rem;
   white-space: nowrap;
+  justify-content: center;
+}
+
+.table-cell-alert {
+  color: #c2410c;
+  font-weight: 800;
 }
 
 .delta-up::before {
@@ -2411,8 +2556,8 @@ table {
 
 th,
 td {
-  padding: 0.95rem 1rem;
-  text-align: left;
+  padding: 0.68rem 0.85rem;
+  text-align: center;
   border-bottom: 1px solid #edf1f6;
 }
 
@@ -2434,9 +2579,18 @@ tbody tr:hover {
   background: #f9fbff;
 }
 
+thead th:first-child,
+tbody td:first-child {
+  text-align: left;
+}
+
 .table-data-row {
   cursor: pointer;
   transition: background 180ms ease, box-shadow 180ms ease;
+}
+
+.table-data-row.is-static {
+  cursor: default;
 }
 
 .table-data-row td {
@@ -2462,7 +2616,7 @@ tbody td:first-child {
 
 .table-row-trigger {
   display: grid;
-  gap: 0.18rem;
+  gap: 0.08rem;
 }
 
 .table-row-trigger strong {
@@ -2489,6 +2643,10 @@ tbody td:first-child {
   color: var(--muted);
   font-size: 0.7rem;
   font-weight: 600;
+}
+
+.table-row-trigger.is-static strong::after {
+  content: none;
 }
 
 .table-detail-row td {
@@ -2988,12 +3146,12 @@ tbody td:first-child {
     order: 2;
   }
 
-  #overviewSection {
-    order: 3;
+  #focusTopSection {
+    order: 4;
   }
 
-  #summaryCards {
-    order: 4;
+  #overviewSection {
+    order: 3;
   }
 
   #monthlySection {
@@ -3116,6 +3274,7 @@ tbody td:first-child {
   .table-summary-strip,
   .insight-grid,
   .performer-grid,
+  .focus-top-section,
   .top-filters-grid,
   .content-grid {
     grid-template-columns: 1fr;
@@ -3361,7 +3520,6 @@ tbody td:first-child {
   }
 
   .top-filters-grid select,
-  .top-filters-grid input[type="date"],
   .table-search input {
     min-height: 32px;
     padding: 0.4rem 0.62rem;

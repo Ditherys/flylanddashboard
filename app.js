@@ -1,5 +1,18 @@
 import { loadAllDatasets } from "./dataLoader.js";
-import { buildKpiDataset, buildRealtimeDataset, getBottomPerformers } from "./kpiCalculator.js";
+import {
+  buildKpiDataset,
+  buildRealtimeDataset,
+  calculateAHTScore,
+  calculateAdmitsScore,
+  calculateAttendanceScore,
+  calculateOverallScore,
+  calculatePerformanceScore,
+  calculateQAScore,
+  calculateTransferRate,
+  calculateTransferScore,
+  getBottomPerformers,
+  getOverallComposition,
+} from "./kpiCalculator.js";
 import { getAvailableAgents, getAvailableWeeks, getFilteredRecords, populateSelect } from "./filters.js";
 import {
   renderBarChart,
@@ -17,8 +30,10 @@ const state = {
   dataset: null,
   realtimeDataset: null,
   filters: { month: "all", week: "all", agent: "all", search: "" },
-  dashboardFocus: "performance",
-  sort: { key: "performanceScore", direction: "desc" },
+  aggregateAllRanges: false,
+  forceAllWeekSelection: false,
+  dashboardFocus: "all",
+  sort: { key: "overallScore", direction: "desc" },
   expandedRowKeys: new Set(),
   mobileSidebarOpen: false,
   mobileTableExpanded: true,
@@ -66,9 +81,21 @@ const KPI_DEFINITIONS = [
 const FOCUS_SCORING = {
   all: { metricKey: "overallScore", title: "Overall", distribution: "transfer" },
   performance: { metricKey: "performanceScore", title: "Performance", distribution: "transfer" },
+  transfer: { metricKey: "transferScore", title: "Transfer", distribution: "transfer" },
+  admits: { metricKey: "admitsScore", title: "Admits", distribution: "admits" },
+  aht: { metricKey: "ahtScore", title: "AHT", distribution: "aht" },
   realtime: { metricKey: "performanceScore", title: "Real Time Performance", distribution: "transfer" },
   attendance: { metricKey: "attendanceScore", title: "Attendance", distribution: "attendance" },
   qa: { metricKey: "qaScore", title: "Quality Assurance", distribution: "qa" },
+};
+
+const PERFORMANCE_FOCUS_KEYS = ["performance", "realtime", "transfer", "admits", "aht"];
+const SINGLE_KPI_SCORE_KEYS = {
+  transfer: "transferScore",
+  admits: "admitsScore",
+  aht: "ahtScore",
+  attendance: "attendanceScore",
+  qa: "qaScore",
 };
 
 const elements = {
@@ -112,7 +139,6 @@ const elements = {
   agentFilterLabel: document.querySelector("#agentFilterLabel"),
   monthFilter: document.querySelector("#monthFilter"),
   weekFilter: document.querySelector("#weekFilter"),
-  dateFilter: document.querySelector("#dateFilter"),
   agentFilter: document.querySelector("#agentFilter"),
   tableSearch: document.querySelector("#tableSearch"),
   resetFilters: document.querySelector("#resetFilters"),
@@ -166,11 +192,19 @@ const elements = {
   teamOnlySections: [...document.querySelectorAll("[data-scope='team-only']")],
   agentOnlySections: [...document.querySelectorAll("[data-scope='agent-only']")],
   summaryCards: [...document.querySelectorAll(".summary-card[data-kpi]")],
-  focusGroupedNodes: [...document.querySelectorAll("[data-focus-group]")],
+  focusGroupedNodes: [...document.querySelectorAll("[data-focus-group]:not(.summary-card)")],
   rawMetricsGrid: document.querySelector("#rawMetricsGrid"),
   overallCardTitle: document.querySelector("#overallCardTitle"),
   contributionCard: document.querySelector("#contributionCard"),
+  trendsSection: document.querySelector("#trendsSection"),
+  snapshotSection: document.querySelector("#snapshotSection"),
+  performersSection: document.querySelector("#performersSection"),
+  deepDiveSection: document.querySelector("#deepDiveSection"),
+  diagnosticsSection: document.querySelector("#diagnosticsSection"),
+  distributionSection: document.querySelector("#distributionSection"),
+  agentsSection: document.querySelector("#agentsSection"),
   tableSectionSubnote: document.querySelector("#tableSectionSubnote"),
+  tableDebugLine: document.querySelector("#tableDebugLine"),
   trendSectionTitle: document.querySelector("#trendSectionTitle"),
   snapshotSectionTitle: document.querySelector("#snapshotSectionTitle"),
   varianceSectionTitle: document.querySelector("#varianceSectionTitle"),
@@ -189,12 +223,186 @@ function isRealtimeFocus() {
   return state.dashboardFocus === "realtime";
 }
 
+function usesRealtimeSource() {
+  return ["realtime", "transfer", "aht"].includes(state.dashboardFocus);
+}
+
 function isPerformanceLikeFocus() {
-  return state.dashboardFocus === "performance" || state.dashboardFocus === "realtime";
+  return PERFORMANCE_FOCUS_KEYS.includes(state.dashboardFocus);
+}
+
+function isSingleKpiFocus() {
+  return Object.prototype.hasOwnProperty.call(SINGLE_KPI_SCORE_KEYS, state.dashboardFocus);
 }
 
 function getActiveDataset() {
-  return isRealtimeFocus() ? state.realtimeDataset : state.dataset;
+  return usesRealtimeSource() ? state.realtimeDataset : state.dataset;
+}
+
+function getFocusScopedRecords(records) {
+  if (!Array.isArray(records)) return [];
+  if (state.dashboardFocus === "admits") {
+    return records.filter((record) => record.sourceFlags?.admits);
+  }
+  if (state.dashboardFocus === "attendance") {
+    return records.filter((record) => record.sourceFlags?.attendance);
+  }
+  if (state.dashboardFocus === "qa") {
+    return records.filter((record) => record.sourceFlags?.qa);
+  }
+  return records;
+}
+
+function getCurrentFocusFilteredRecords(search = state.filters.search) {
+  const activeDataset = getActiveDataset();
+  const focusRecords = getFocusScopedRecords(activeDataset.records);
+  return getFilteredRecords(focusRecords, { ...state.filters, search });
+}
+
+function isAllDateRangesControlSelected() {
+  return false;
+}
+
+function populateWeekSelect(options) {
+  if (!elements.weekFilter) return;
+  elements.weekFilter.innerHTML = "";
+
+  options.forEach((option) => {
+    const optionElement = document.createElement("option");
+    optionElement.value = option;
+    optionElement.textContent = option;
+    elements.weekFilter.appendChild(optionElement);
+  });
+}
+
+function getAggregateDateRangeLabel(records) {
+  if (!records.length) return "All Date Ranges";
+  if (state.filters.month !== "all") return `${state.filters.month} (All Date Ranges)`;
+  const uniqueMonths = [...new Set(records.map((record) => record.monthLabel).filter(Boolean))];
+  if (uniqueMonths.length === 1) return `${uniqueMonths[0]} (All Date Ranges)`;
+  return "All Selected Date Ranges";
+}
+
+function getLatestDisplayFrom(records, dateKey, displayKey) {
+  const latestRecord = [...records]
+    .filter((record) => record[dateKey] instanceof Date && !Number.isNaN(record[dateKey].getTime()))
+    .sort((left, right) => left[dateKey].getTime() - right[dateKey].getTime())
+    .at(-1);
+  return latestRecord?.[displayKey] || "N/A";
+}
+
+function getCurrentTableRecords(search = state.filters.search) {
+  const activeDataset = getActiveDataset();
+  const focusRecords = getFocusScopedRecords(activeDataset.records);
+  const currentFilters = {
+    month: state.filters.month,
+    week: state.filters.week,
+    agent: state.filters.agent,
+    search,
+  };
+
+  if (currentFilters.week !== "all") {
+    return getFilteredRecords(focusRecords, currentFilters);
+  }
+
+  const baseRecords = getFilteredRecords(focusRecords, {
+    ...currentFilters,
+    week: "all",
+    search: "",
+  });
+
+  const aggregatedByAgent = new Map();
+  baseRecords.forEach((record) => {
+    const aggregateKey = `${(record.email || "").toLowerCase()}__${record.agentName}`;
+    const bucket = aggregatedByAgent.get(aggregateKey) || [];
+    bucket.push(record);
+    aggregatedByAgent.set(aggregateKey, bucket);
+  });
+
+  const aggregated = [...aggregatedByAgent.values()].map((items) => {
+    const base = items[0];
+    const aggregateLabel = currentFilters.month !== "all"
+      ? `${currentFilters.month} (All Date Ranges)`
+      : getAggregateDateRangeLabel(items);
+    const firstTimeCaller = items.reduce((sum, item) => sum + (Number(item.firstTimeCaller) || 0), 0);
+    const transferCount = items.reduce((sum, item) => sum + (Number(item.transferCount) || 0), 0);
+    const inboundCalls = items.reduce((sum, item) => sum + (Number(item.inboundCalls) || 0), 0);
+    const inboundMinutesSeconds = items.reduce((sum, item) => sum + (Number(item.inboundMinutesSeconds) || 0), 0);
+    const holdTimeSeconds = items.reduce((sum, item) => sum + (Number(item.holdTimeSeconds) || 0), 0);
+    const admitsCount = items.reduce((sum, item) => sum + (Number(item.admitsCount) || 0), 0);
+    const hoursPresent = items.reduce((sum, item) => sum + (Number(item.hoursPresent) || 0), 0);
+    const hoursAbsent = items.reduce((sum, item) => sum + (Number(item.hoursAbsent) || 0), 0);
+    const sickLeaveHours = items.reduce((sum, item) => sum + (Number(item.sickLeaveHours) || 0), 0);
+    const undertimeHours = items.reduce((sum, item) => sum + (Number(item.undertimeHours) || 0), 0);
+    const requiredHours = items.reduce((sum, item) => sum + (Number(item.requiredHours) || 0), 0);
+    const attendancePercentValue = requiredHours > 0
+      ? (hoursPresent / requiredHours) * 100
+      : items.reduce((sum, item) => sum + (Number(item.attendancePercentValue) || 0), 0) / Math.max(items.length, 1);
+    const qaValues = items
+      .map((item) => item.qaPercentValue)
+      .filter((value) => typeof value === "number" && !Number.isNaN(value));
+    const qaPercentValue = qaValues.length
+      ? qaValues.reduce((sum, value) => sum + value, 0) / qaValues.length
+      : null;
+    const transferRate = calculateTransferRate(transferCount || null, firstTimeCaller || null);
+    const transferScore = calculateTransferScore(transferRate);
+    const admitsScore = calculateAdmitsScore(admitsCount || null);
+    const ahtSeconds = inboundCalls > 0 ? (inboundMinutesSeconds + holdTimeSeconds) / inboundCalls : null;
+    const ahtScore = calculateAHTScore(ahtSeconds);
+    const attendanceScore = calculateAttendanceScore(attendancePercentValue);
+    const qaScore = calculateQAScore(qaPercentValue);
+    const performanceScore = calculatePerformanceScore(transferScore, admitsScore, ahtScore);
+    const overallWeights = getOverallComposition(performanceScore, attendanceScore, qaScore);
+    const overallScore = calculateOverallScore(performanceScore, attendanceScore, qaScore);
+
+    return {
+      ...base,
+      key: `aggregate__${aggregateKey}__${currentFilters.month}`,
+      monthLabel: base.monthLabel,
+      weekEnding: aggregateLabel,
+      dateRange: aggregateLabel,
+      firstTimeCaller,
+      transferCount,
+      inboundCalls,
+      inboundMinutesSeconds,
+      inboundMinutes: formatTimeFromSeconds(inboundMinutesSeconds),
+      holdTimeSeconds,
+      holdTime: formatTimeFromSeconds(holdTimeSeconds),
+      admitsCount,
+      hoursPresent,
+      hoursAbsent,
+      sickLeaveHours,
+      undertimeHours,
+      requiredHours,
+      attendancePercentValue,
+      attendancePercentDisplay: formatPercent(attendancePercentValue),
+      qaPercentValue,
+      qaPercentDisplay: formatPercent(qaPercentValue),
+      transferRate,
+      transferRatePercent: transferRate === null ? null : transferRate * 100,
+      transferRateDisplay: formatPercent(transferRate === null ? null : transferRate * 100),
+      transferScore,
+      admitsScore,
+      ahtSeconds,
+      ahtDisplay: formatTimeFromSeconds(ahtSeconds),
+      ahtScore,
+      attendanceScore,
+      qaScore,
+      performanceScore,
+      overallScore,
+      overallIncludesQa: overallWeights.includesQa,
+      overallWeights: overallWeights.weights,
+      lastUpdatedDisplay: getLatestDisplayFrom(items, "lastUpdatedAt", "lastUpdatedDisplay"),
+      admitsLastUpdatedDisplay: getLatestDisplayFrom(items, "admitsLastUpdatedAt", "admitsLastUpdatedDisplay"),
+      qaLastUpdatedDisplay: getLatestDisplayFrom(items, "qaLastUpdatedAt", "qaLastUpdatedDisplay"),
+    };
+  });
+
+  if (!currentFilters.search) return aggregated;
+  const searchTerm = currentFilters.search.trim().toLowerCase();
+  return aggregated.filter((record) =>
+    `${record.agentName} ${record.weekEnding}`.toLowerCase().includes(searchTerm)
+  );
 }
 
 function setMobileDockActive(action) {
@@ -340,9 +548,13 @@ function bindSummaryCardInteractions() {
 
 function resetDashboardFilters() {
   const activeDataset = getActiveDataset();
+  const focusRecords = getFocusScopedRecords(activeDataset.records);
+  const monthOptions = [...new Set(focusRecords.map((record) => record.monthLabel))];
+  const latestMonth = monthOptions.at(-1) || "all";
+  const latestRange = getAvailableWeeks(focusRecords, latestMonth).at(-1) || [...new Set(focusRecords.map((record) => record.weekEnding))].at(-1) || "all";
   state.filters = {
-    month: isRealtimeFocus() ? "all" : activeDataset.monthOptions.at(-1) || "all",
-    week: activeDataset.weekOptions.at(-1) || "all",
+    month: latestMonth,
+    week: latestRange,
     agent: "all",
     search: "",
   };
@@ -477,7 +689,7 @@ function openBreakdownDrilldown(record) {
         score: null,
       },
     ]
-    : isPerformanceLikeFocus()
+    : state.dashboardFocus === "performance" || isRealtimeFocus()
     ? [
       {
         label: "Transfer",
@@ -500,6 +712,55 @@ function openBreakdownDrilldown(record) {
         score: null,
       },
     ]
+    : state.dashboardFocus === "transfer"
+    ? [
+      {
+        label: "Transfer",
+        value: record.transferRateDisplay,
+        score: formatScore(record.transferScore),
+      },
+      {
+        label: "First-Time Callers",
+        value: record.firstTimeCaller === null || record.firstTimeCaller === undefined ? "N/A" : Number(record.firstTimeCaller).toFixed(0),
+        score: null,
+      },
+      {
+        label: "Transfer Count",
+        value: record.transferCount === null || record.transferCount === undefined ? "N/A" : Number(record.transferCount).toFixed(0),
+        score: null,
+      },
+    ]
+    : state.dashboardFocus === "admits"
+      ? [
+        {
+          label: "Admits",
+          value: record.admitsCount === null || record.admitsCount === undefined ? "N/A" : Number(record.admitsCount).toFixed(0),
+          score: formatScore(record.admitsScore),
+        },
+      ]
+      : state.dashboardFocus === "aht"
+        ? [
+          {
+            label: "AHT",
+            value: record.ahtDisplay,
+            score: formatScore(record.ahtScore),
+          },
+          {
+            label: "Inbound Calls",
+            value: record.inboundCalls === null || record.inboundCalls === undefined ? "N/A" : Number(record.inboundCalls).toFixed(0),
+            score: null,
+          },
+          {
+            label: "Inbound Minutes",
+            value: record.inboundMinutes || "N/A",
+            score: null,
+          },
+          {
+            label: "Hold Time",
+            value: record.holdTime || "N/A",
+            score: null,
+          },
+        ]
     : state.dashboardFocus === "attendance"
       ? [
         {
@@ -620,58 +881,46 @@ function formatSignedDelta(delta) {
   return `${prefix}${Number(delta).toFixed(2)}`;
 }
 
-function getComparisonUnitLabel() {
-  return isRealtimeFocus() ? "date" : "week";
-}
-
-function getDateKey(value) {
-  if (!(value instanceof Date) || Number.isNaN(value.getTime())) return "";
-  const year = value.getFullYear();
-  const month = String(value.getMonth() + 1).padStart(2, "0");
-  const day = String(value.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
-}
-
-function shiftDateByDays(value, days) {
-  if (!(value instanceof Date) || Number.isNaN(value.getTime())) return null;
-  const shifted = new Date(value.getFullYear(), value.getMonth(), value.getDate());
-  shifted.setDate(shifted.getDate() + days);
-  return shifted;
-}
-
-function getRealtimeDateEntries() {
-  return state.realtimeDataset?.weeklyAverages || [];
-}
-
-function getIsoDateFromWeekValue(weekValue) {
-  const match = getRealtimeDateEntries().find((item) => item.weekEnding === weekValue);
-  return match?.weekDate ? getDateKey(match.weekDate) : "";
-}
-
-function getWeekValueFromIsoDate(isoDate) {
-  if (!isoDate) return "";
-  const entries = getRealtimeDateEntries().filter((item) => item.weekDate instanceof Date && !Number.isNaN(item.weekDate.getTime()));
-  if (!entries.length) return "";
-
-  const exactMatch = entries.find((item) => getDateKey(item.weekDate) === isoDate);
-  if (exactMatch) return exactMatch.weekEnding;
-
-  const pickedTime = new Date(`${isoDate}T00:00:00`).getTime();
-  const priorMatch = [...entries]
-    .filter((item) => item.weekDate.getTime() <= pickedTime)
-    .sort((left, right) => left.weekDate.getTime() - right.weekDate.getTime())
+function getLatestLastUpdatedDisplay(records) {
+  const latestRecord = [...records]
+    .filter((record) => record.lastUpdatedAt instanceof Date && !Number.isNaN(record.lastUpdatedAt.getTime()))
+    .sort((left, right) => left.lastUpdatedAt.getTime() - right.lastUpdatedAt.getTime())
     .at(-1);
-  if (priorMatch) return priorMatch.weekEnding;
+  return latestRecord?.lastUpdatedDisplay || "--";
+}
 
-  return entries[0]?.weekEnding || "";
+function getLatestAdmitsLastUpdatedDisplay(records) {
+  const latestRecord = [...records]
+    .filter((record) => record.admitsLastUpdatedAt instanceof Date && !Number.isNaN(record.admitsLastUpdatedAt.getTime()))
+    .sort((left, right) => left.admitsLastUpdatedAt.getTime() - right.admitsLastUpdatedAt.getTime())
+    .at(-1);
+  return latestRecord?.admitsLastUpdatedDisplay || "--";
+}
+
+function getLatestQaLastUpdatedDisplay(records) {
+  const latestRecord = [...records]
+    .filter((record) => record.qaLastUpdatedAt instanceof Date && !Number.isNaN(record.qaLastUpdatedAt.getTime()))
+    .sort((left, right) => left.qaLastUpdatedAt.getTime() - right.qaLastUpdatedAt.getTime())
+    .at(-1);
+  return latestRecord?.qaLastUpdatedDisplay || "--";
+}
+
+function getComparisonUnitLabel() {
+  return "date range";
 }
 
 function getLatestRealtimeWeek() {
-  return state.realtimeDataset?.weekOptions?.at(-1) || "all";
+  const monthFilter = state.filters.month === "all" ? state.realtimeDataset?.monthOptions?.at(-1) || "all" : state.filters.month;
+  const availableWeeks = getAvailableWeeks(state.realtimeDataset?.records || [], monthFilter);
+  return availableWeeks.at(-1) || "all";
 }
 
 function shouldShowRealtimeLastUpdated() {
-  return isRealtimeFocus() && state.filters.week === getLatestRealtimeWeek();
+  return ["transfer", "aht"].includes(state.dashboardFocus) || (isRealtimeFocus() && state.filters.week === getLatestRealtimeWeek());
+}
+
+function shouldShowFocusLastUpdated() {
+  return shouldShowRealtimeLastUpdated() || ["admits", "qa"].includes(state.dashboardFocus);
 }
 
 function getRankedKpis(summary) {
@@ -690,8 +939,10 @@ function getFocusRankedKpis(summary) {
   if (!summary) return [];
   const scoped = state.dashboardFocus === "all"
     ? KPI_DEFINITIONS
-    : isPerformanceLikeFocus()
+    : state.dashboardFocus === "performance" || state.dashboardFocus === "realtime"
     ? KPI_DEFINITIONS.filter((item) => ["transferScore", "admitsScore", "ahtScore"].includes(item.key))
+    : isSingleKpiFocus()
+    ? KPI_DEFINITIONS.filter((item) => item.key === SINGLE_KPI_SCORE_KEYS[state.dashboardFocus])
     : KPI_DEFINITIONS.filter((item) => item.key === (state.dashboardFocus === "attendance" ? "attendanceScore" : "qaScore"));
 
   return scoped
@@ -839,9 +1090,9 @@ function getComparisonWeeklyAverages(weeklyAverages, selectedWeekEnding) {
   if (!selectedEntry?.weekDate) return comparisonPool.slice(-2);
 
   if (isRealtimeFocus()) {
-    const yesterdayKey = getDateKey(shiftDateByDays(selectedEntry.weekDate, -1));
-    const yesterdayEntry = comparisonPool.find((item) => getDateKey(item.weekDate) === yesterdayKey);
-    return yesterdayEntry ? [yesterdayEntry, selectedEntry] : [selectedEntry];
+    const eligibleRanges = comparisonPool.filter((item) => (item.weekDate?.getTime() ?? 0) <= selectedEntry.weekDate.getTime());
+    if (!eligibleRanges.length) return [selectedEntry];
+    return eligibleRanges.slice(-2);
   }
 
   const eligibleWeeks = comparisonPool.filter((item) => (item.weekDate?.getTime() ?? 0) <= selectedEntry.weekDate.getTime());
@@ -889,11 +1140,11 @@ function updateInsights(filteredRecords, weeklyAverages) {
     : `${totalAgents || 0} agents in current scope`;
   elements.viewInsightBody.textContent = isAgentView
     ? isRealtimeFocus()
-      ? `${selectedSummary.weekEnding || "Latest date"} is selected across ${totalWeeks || 0} available date(s) for this agent.`
-      : `${selectedSummary.weekEnding || "Latest week"} is selected across ${totalWeeks || 0} available week(s) for this agent.`
+      ? `${selectedSummary.weekEnding || "Latest date range"} is selected across ${totalWeeks || 0} available date range(s) for this agent.`
+      : `${selectedSummary.weekEnding || "Latest date range"} is selected across ${totalWeeks || 0} available date range(s) for this agent.`
     : isRealtimeFocus()
-    ? `${state.filters.week === "all" ? "All available dates" : state.filters.week} is showing ${filteredRecords.length} live row(s) for the current scope.`
-    : `${state.filters.month === "all" ? "All months" : state.filters.month} with ${state.filters.week === "all" ? "all available weeks" : state.filters.week} is showing ${filteredRecords.length} score row(s).`;
+    ? `${state.filters.week === "all" ? "All available date ranges" : state.filters.week} is showing ${filteredRecords.length} live row(s) for the current scope.`
+    : `${state.filters.month === "all" ? "All months" : state.filters.month} with ${state.filters.week === "all" ? "all available date ranges" : state.filters.week} is showing ${filteredRecords.length} score row(s).`;
 
   elements.bestInsightTitle.textContent = bestKpi
     ? `${bestKpi.label} is leading at ${formatScore(bestKpi.score)}`
@@ -923,15 +1174,15 @@ function updateInsights(filteredRecords, weeklyAverages) {
 
   elements.momentumInsightTitle.textContent =
     overallDelta === null || Number.isNaN(overallDelta)
-      ? isRealtimeFocus() ? "No yesterday data for momentum" : "No previous week for momentum"
+      ? isRealtimeFocus() ? "No previous range for momentum" : "No previous week for momentum"
       : `${FOCUS_SCORING[state.dashboardFocus].title} ${overallDelta >= 0 ? "up" : "down"} ${formatSignedDelta(overallDelta)}`;
   elements.momentumInsightBody.textContent =
     overallDelta === null || Number.isNaN(overallDelta)
       ? isRealtimeFocus()
-        ? `${selectedSummary.weekEnding || "Selected date"} has no yesterday data available for comparison.`
-        : `${selectedSummary.weekEnding || "Selected week"} has no earlier week available for comparison.`
+        ? `${selectedSummary.weekEnding || "Selected date range"} has no earlier date range available for comparison.`
+        : `${selectedSummary.weekEnding || "Selected date range"} has no earlier date range available for comparison.`
       : isRealtimeFocus()
-      ? `${currentWeek.weekEnding} versus yesterday (${previousWeek.weekEnding}) on ${FOCUS_SCORING[state.dashboardFocus].title.toLowerCase()} score.`
+      ? `${currentWeek.weekEnding} versus previous date range (${previousWeek.weekEnding}) on ${FOCUS_SCORING[state.dashboardFocus].title.toLowerCase()} score.`
       : `${currentWeek.weekEnding} versus ${previousWeek.weekEnding} on ${FOCUS_SCORING[state.dashboardFocus].title.toLowerCase()} score.`;
 
   if (elements.mobileStatusMonth && elements.mobileStatusWeek && elements.mobileStatusScope) {
@@ -940,7 +1191,7 @@ function updateInsights(filteredRecords, weeklyAverages) {
       : state.filters.month === "all"
       ? "All Months"
       : state.filters.month;
-    elements.mobileStatusWeek.textContent = state.filters.week === "all" ? selectedSummary.weekEnding || (isRealtimeFocus() ? "Latest Date" : "Latest") : state.filters.week;
+    elements.mobileStatusWeek.textContent = state.filters.week === "all" ? selectedSummary.weekEnding || "Latest Range" : state.filters.week;
     elements.mobileStatusScope.textContent = state.filters.agent === "all" ? `${totalAgents || 0} Agents` : state.filters.agent;
   }
 
@@ -959,10 +1210,10 @@ function updateInsights(filteredRecords, weeklyAverages) {
     if (filtersTitle && filtersCopy) {
       if (state.filters.agent === "all") {
         filtersTitle.textContent = "Filters";
-        filtersCopy.textContent = isRealtimeFocus() ? "Open date and agent filters." : "Open month, week, and agent filters.";
+        filtersCopy.textContent = "Open month, date range, and agent filters.";
       } else {
         filtersTitle.textContent = "Agent Scope";
-        filtersCopy.textContent = isRealtimeFocus() ? "Change the selected agent or date focus." : "Change the selected agent or week focus.";
+        filtersCopy.textContent = "Change the selected month, date range, or agent focus.";
       }
     }
   }
@@ -975,9 +1226,9 @@ function updateAgentFocus(filteredRecords, weeklyAverages) {
     elements.agentOverallValue.textContent = "--";
     elements.agentOverallNarrative.textContent = "Latest weighted score summary.";
     elements.agentStrongestValue.textContent = "--";
-    elements.agentStrongestNarrative.textContent = "Best-performing KPI this week.";
+    elements.agentStrongestNarrative.textContent = "Best-performing KPI in the latest date range.";
     elements.agentWeakestValue.textContent = "--";
-    elements.agentWeakestNarrative.textContent = "Most urgent KPI to coach this week.";
+    elements.agentWeakestNarrative.textContent = "Most urgent KPI to coach in the latest date range.";
     return;
   }
 
@@ -992,18 +1243,18 @@ function updateAgentFocus(filteredRecords, weeklyAverages) {
     currentWeek && previousWeek ? Number(currentWeek.overallScore) - Number(previousWeek.overallScore) : null;
 
   elements.agentFocusName.textContent = state.filters.agent;
-  elements.agentFocusNarrative.textContent = `${weeklyAverages.length} tracked week(s) in the current month filter. Use this as a quick coaching snapshot before reviewing the charts below.`;
+  elements.agentFocusNarrative.textContent = `${weeklyAverages.length} tracked date range(s) in the current month filter. Use this as a quick coaching snapshot before reviewing the charts below.`;
   if (isRealtimeFocus()) {
-    elements.agentFocusNarrative.textContent = `${weeklyAverages.length} tracked date(s) in the real-time feed. Use this as a quick coaching snapshot before reviewing the charts below.`;
+    elements.agentFocusNarrative.textContent = `${weeklyAverages.length} tracked date range(s) in the real-time feed. Use this as a quick coaching snapshot before reviewing the charts below.`;
   }
   elements.agentOverallValue.textContent = formatScore(selectedSummary.overallScore);
   elements.agentOverallNarrative.textContent =
     overallDelta === null || Number.isNaN(overallDelta)
       ? isRealtimeFocus()
-        ? `Latest available date: ${selectedSummary.weekEnding || "No Data"}.`
-        : `Latest available week: ${selectedSummary.weekEnding || "No Data"}.`
+        ? `Latest available date range: ${selectedSummary.weekEnding || "No Data"}.`
+        : `Latest available date range: ${selectedSummary.weekEnding || "No Data"}.`
       : isRealtimeFocus()
-      ? `${currentWeek.weekEnding} moved ${formatSignedDelta(overallDelta)} versus yesterday (${previousWeek.weekEnding}).`
+      ? `${currentWeek.weekEnding} moved ${formatSignedDelta(overallDelta)} versus previous date range (${previousWeek.weekEnding}).`
       : `${currentWeek.weekEnding} moved ${formatSignedDelta(overallDelta)} versus ${previousWeek.weekEnding}.`;
   elements.agentStrongestValue.textContent = bestKpi ? `${bestKpi.label} ${formatScore(bestKpi.score)}` : "N/A";
   elements.agentStrongestNarrative.textContent = bestKpi
@@ -1106,6 +1357,31 @@ function getRawMetricCards(metrics, currentSummary, previousSummary) {
   }
 
   if (isPerformanceLikeFocus()) {
+    if (state.dashboardFocus === "transfer") {
+      return [
+        ["Average Transfer Rate", formatPercent(metrics.transferRatePercent), buildTextDelta(currentSummary?.transferRatePercent, previousSummary?.transferRatePercent, (value) => formatPercent(value))],
+        ["Transfer Score", formatScore(metrics.transferScore), buildTextDelta(currentSummary?.transferScore, previousSummary?.transferScore, (value) => formatScore(value))],
+        ["First-Time Callers", metrics.firstTimeCaller === null || metrics.firstTimeCaller === undefined ? "N/A" : metrics.firstTimeCaller.toFixed(2), buildTextDelta(currentSummary?.firstTimeCaller, previousSummary?.firstTimeCaller, (value) => Number(value).toFixed(2))],
+        ["Transfer Count", metrics.transferCount === null || metrics.transferCount === undefined ? "N/A" : metrics.transferCount.toFixed(2), buildTextDelta(currentSummary?.transferCount, previousSummary?.transferCount, (value) => Number(value).toFixed(2))],
+        ["Agents in Scope", String(metrics.agentCount), buildTextDelta(currentSummary?.agentCount, previousSummary?.agentCount, (value) => `${Math.round(value)} agents`)],
+      ];
+    }
+    if (state.dashboardFocus === "admits") {
+      return [
+        ["Average Admit Count", metrics.admitsCount === null || metrics.admitsCount === undefined ? "N/A" : metrics.admitsCount.toFixed(2), buildTextDelta(currentSummary?.admitsCount, previousSummary?.admitsCount, (value) => Number(value).toFixed(2))],
+        ["Admits Score", formatScore(metrics.admitsScore), buildTextDelta(currentSummary?.admitsScore, previousSummary?.admitsScore, (value) => formatScore(value))],
+        ["Agents in Scope", String(metrics.agentCount), buildTextDelta(currentSummary?.agentCount, previousSummary?.agentCount, (value) => `${Math.round(value)} agents`)],
+      ];
+    }
+    if (state.dashboardFocus === "aht") {
+      return [
+        ["Average AHT", formatTimeFromSeconds(metrics.ahtSeconds), buildTextDelta(currentSummary?.ahtSeconds, previousSummary?.ahtSeconds, (value) => formatTimeFromSeconds(value))],
+        ["Inbound Calls", metrics.inboundCalls === null || metrics.inboundCalls === undefined ? "N/A" : metrics.inboundCalls.toFixed(2), buildTextDelta(currentSummary?.inboundCalls, previousSummary?.inboundCalls, (value) => Number(value).toFixed(2))],
+        ["Inbound Minutes", formatTimeFromSeconds(metrics.inboundMinutesSeconds), buildTextDelta(currentSummary?.inboundMinutesSeconds, previousSummary?.inboundMinutesSeconds, (value) => formatTimeFromSeconds(value))],
+        ["Hold Time", formatTimeFromSeconds(metrics.holdTimeSeconds), buildTextDelta(currentSummary?.holdTimeSeconds, previousSummary?.holdTimeSeconds, (value) => formatTimeFromSeconds(value))],
+        ["Agents in Scope", String(metrics.agentCount), buildTextDelta(currentSummary?.agentCount, previousSummary?.agentCount, (value) => `${Math.round(value)} agents`)],
+      ];
+    }
     return [
       ["Average Transfer Rate", formatPercent(metrics.transferRatePercent), buildTextDelta(currentSummary?.transferRatePercent, previousSummary?.transferRatePercent, (value) => formatPercent(value))],
       ["Average Admit Count", metrics.admitsCount === null || metrics.admitsCount === undefined ? "N/A" : metrics.admitsCount.toFixed(2), buildTextDelta(currentSummary?.admitsCount, previousSummary?.admitsCount, (value) => Number(value).toFixed(2))],
@@ -1155,6 +1431,23 @@ function renderPerformerSpreadSummary(records, metricKey) {
   const scored = records.filter((record) => typeof record[metricKey] === "number" && !Number.isNaN(record[metricKey]));
   if (!scored.length) {
     elements.performerSpreadSummary.innerHTML = "";
+    return;
+  }
+
+  if (state.dashboardFocus === "qa") {
+    const totalAgents = new Set(filteredRecords.map((record) => record.agentName)).size;
+    const totalDates = new Set(filteredRecords.map((record) => record.weekEnding)).size;
+    const latestUpdatedDisplay = getLatestQaLastUpdatedDisplay(filteredRecords);
+    elements.dataStatusText.textContent =
+      state.filters.agent === "all"
+        ? `${filteredRecords.length} QA rows across ${totalAgents} agents and ${totalDates} date range(s).${latestUpdatedDisplay !== "--" ? ` Last updated ${latestUpdatedDisplay}.` : ""}`
+        : `${filteredRecords.length} QA rows for ${state.filters.agent} across ${totalDates} date range(s).${latestUpdatedDisplay !== "--" ? ` Last updated ${latestUpdatedDisplay}.` : ""}`;
+    if (elements.realtimeLastUpdatedText) {
+      elements.realtimeLastUpdatedText.textContent = latestUpdatedDisplay;
+    }
+    if (elements.realtimeLastUpdatedPill) {
+      elements.realtimeLastUpdatedPill.hidden = latestUpdatedDisplay === "--";
+    }
     return;
   }
 
@@ -1277,31 +1570,28 @@ function updateSummaryCards(filteredRecords, weeklyAverages) {
 
 function syncFilterOptions() {
   const activeDataset = getActiveDataset();
+  const focusRecords = getFocusScopedRecords(activeDataset.records);
   const realtimeFocus = isRealtimeFocus();
 
-  populateSelect(elements.monthFilter, activeDataset.monthOptions, realtimeFocus ? "Real Time" : "All Months");
+  const monthOptions = [...new Set(focusRecords.map((record) => record.monthLabel))];
+  if (state.filters.month !== "all" && !monthOptions.includes(state.filters.month)) {
+    state.filters.month = monthOptions.at(-1) || "all";
+  }
+  populateSelect(elements.monthFilter, monthOptions, "All Months");
 
   const weekOptions = realtimeFocus
-    ? activeDataset.weekOptions
-    : getAvailableWeeks(activeDataset.records, state.filters.month);
-  populateSelect(elements.weekFilter, weekOptions, realtimeFocus ? "All Dates" : "All Weeks");
-  if (!weekOptions.includes(state.filters.week)) state.filters.week = weekOptions.at(-1) || "all";
+    ? getAvailableWeeks(focusRecords, state.filters.month)
+    : getAvailableWeeks(focusRecords, state.filters.month);
+  populateWeekSelect(weekOptions);
+  if (!weekOptions.includes(state.filters.week)) {
+    state.filters.week = weekOptions.at(-1) || "all";
+  }
+  state.aggregateAllRanges = false;
 
-  const agentOptions = getAvailableAgents(activeDataset.records, realtimeFocus ? "all" : state.filters.month, state.filters.week);
+  const agentOptions = getAvailableAgents(focusRecords, state.filters.month, state.filters.week);
   populateSelect(elements.agentFilter, agentOptions, "All Agents");
-  if (!agentOptions.includes(state.filters.agent)) state.filters.agent = "all";
-
-  if (realtimeFocus) {
-    state.filters.month = "all";
-    const realtimeEntries = getRealtimeDateEntries().filter((item) => item.weekDate instanceof Date && !Number.isNaN(item.weekDate.getTime()));
-    const minIsoDate = realtimeEntries[0]?.weekDate ? getDateKey(realtimeEntries[0].weekDate) : "";
-    const maxIsoDate = realtimeEntries.at(-1)?.weekDate ? getDateKey(realtimeEntries.at(-1).weekDate) : "";
-    const selectedIsoDate = getIsoDateFromWeekValue(state.filters.week) || maxIsoDate;
-    if (elements.dateFilter) {
-      elements.dateFilter.min = minIsoDate;
-      elements.dateFilter.max = maxIsoDate;
-      elements.dateFilter.value = selectedIsoDate;
-    }
+  if (state.filters.agent !== "all" && !agentOptions.includes(state.filters.agent)) {
+    state.filters.agent = "all";
   }
 
   elements.monthFilter.value = state.filters.month;
@@ -1319,22 +1609,20 @@ function updateCharts(filteredRecords, weeklyAverages, scopedRecords, trendWeekl
   const comparisonWeeklyAverages = getComparisonWeeklyAverages(weeklyAverages, weekSummary.weekEnding);
 
   if (elements.comparisonTitle && elements.comparisonSubnote) {
-    const selectedWeek = comparisonWeeklyAverages.at(-1)?.weekEnding || (isRealtimeFocus() ? "Selected Date" : "Selected Week");
-    const previousWeek = comparisonWeeklyAverages.length > 1 ? comparisonWeeklyAverages[0]?.weekEnding : isRealtimeFocus() ? "No yesterday data" : `No previous ${getComparisonUnitLabel()}`;
+    const selectedWeek = comparisonWeeklyAverages.at(-1)?.weekEnding || (isRealtimeFocus() ? "Selected Date Range" : "Selected Week");
+    const previousWeek = comparisonWeeklyAverages.length > 1 ? comparisonWeeklyAverages[0]?.weekEnding : isRealtimeFocus() ? "No previous date range" : `No previous ${getComparisonUnitLabel()}`;
     const qaPending = !hasValidNumber(weekSummary.qaScore);
     elements.comparisonTitle.textContent = state.dashboardFocus === "all"
-      ? `Selected ${getComparisonUnitLabel()} vs previous ${getComparisonUnitLabel()}`
-      : isRealtimeFocus()
-      ? `${FOCUS_SCORING[state.dashboardFocus].title} vs yesterday`
-      : `${FOCUS_SCORING[state.dashboardFocus].title} vs previous ${getComparisonUnitLabel()}`;
+      ? `Selected date range vs previous date range`
+      : `${FOCUS_SCORING[state.dashboardFocus].title} vs previous date range`;
     elements.comparisonSubnote.textContent =
       comparisonWeeklyAverages.length > 1
         ? isRealtimeFocus()
-          ? `${selectedWeek} vs yesterday (${previousWeek}).${qaPending ? " QA is pending and excluded from overall where missing." : ""}`
+          ? `${selectedWeek} vs previous date range (${previousWeek}).${qaPending ? " QA is pending and excluded from overall where missing." : ""}`
           : `${selectedWeek} vs ${previousWeek}.${qaPending ? " QA is pending and excluded from overall where missing." : ""}`
         : isRealtimeFocus()
-        ? `${selectedWeek} has no yesterday data available.${qaPending ? " QA is pending and excluded from overall where missing." : ""}`
-        : `${selectedWeek} has no prior ${getComparisonUnitLabel()}.${qaPending ? " QA is pending and excluded from overall where missing." : ""}`;
+        ? `${selectedWeek} has no previous date range available.${qaPending ? " QA is pending and excluded from overall where missing." : ""}`
+        : `${selectedWeek} has no previous ${getComparisonUnitLabel()} available.${qaPending ? " QA is pending and excluded from overall where missing." : ""}`;
   }
 
   if (elements.rankingSubnote) {
@@ -1414,13 +1702,18 @@ function handleRowToggle(rowKey) {
   } else {
     state.expandedRowKeys.add(rowKey);
   }
-  updateTable(getFilteredRecords(getActiveDataset().records, state.filters));
+  updateTable(getCurrentTableRecords());
 }
 
 function updateTable(filteredRecords) {
   const tableOptions = {
     showLastUpdated: shouldShowRealtimeLastUpdated(),
+    enableRowExpansion: !isSingleKpiFocus(),
   };
+  if (elements.tableDebugLine) {
+    elements.tableDebugLine.hidden = true;
+    elements.tableDebugLine.textContent = "";
+  }
   state.expandedRowKeys = new Set(
     [...state.expandedRowKeys].filter((key) => filteredRecords.some((record) => record.key === key))
   );
@@ -1441,20 +1734,88 @@ function updateStatus(filteredRecords) {
     const showLastUpdated = shouldShowRealtimeLastUpdated();
     const totalAgents = new Set(filteredRecords.map((record) => record.agentName)).size;
     const totalDates = new Set(filteredRecords.map((record) => record.weekEnding)).size;
-    const latestUpdated = [...filteredRecords]
-      .map((record) => record.lastUpdatedAt)
-      .filter((value) => value instanceof Date && !Number.isNaN(value.getTime()))
-      .sort((left, right) => left.getTime() - right.getTime())
-      .at(-1);
+    const latestUpdatedDisplay = getLatestLastUpdatedDisplay(filteredRecords);
     elements.dataStatusText.textContent =
       state.filters.agent === "all"
-        ? `${filteredRecords.length} live rows across ${totalAgents} agents and ${totalDates} date(s).${showLastUpdated && latestUpdated ? ` Last updated ${latestUpdated.toLocaleString("en-US")}.` : ""}`
-        : `${filteredRecords.length} live rows for ${state.filters.agent} across ${totalDates} date(s).${showLastUpdated && latestUpdated ? ` Last updated ${latestUpdated.toLocaleString("en-US")}.` : ""}`;
+        ? `${filteredRecords.length} live rows across ${totalAgents} agents and ${totalDates} date range(s).${showLastUpdated && latestUpdatedDisplay !== "--" ? ` Last updated ${latestUpdatedDisplay}.` : ""}`
+        : `${filteredRecords.length} live rows for ${state.filters.agent} across ${totalDates} date range(s).${showLastUpdated && latestUpdatedDisplay !== "--" ? ` Last updated ${latestUpdatedDisplay}.` : ""}`;
     if (elements.realtimeLastUpdatedText) {
-      elements.realtimeLastUpdatedText.textContent = showLastUpdated && latestUpdated ? latestUpdated.toLocaleString("en-US") : "--";
+      elements.realtimeLastUpdatedText.textContent = showLastUpdated ? latestUpdatedDisplay : "--";
     }
     if (elements.realtimeLastUpdatedPill) {
       elements.realtimeLastUpdatedPill.hidden = !showLastUpdated;
+    }
+    return;
+  }
+
+  if (state.dashboardFocus === "transfer") {
+    const focusLabel = state.dashboardFocus === "transfer" ? "transfer" : "AHT";
+    const rowLabel = state.dashboardFocus === "transfer" ? "transfer rows" : "AHT rows";
+    const showLastUpdated = shouldShowRealtimeLastUpdated();
+    const totalAgents = new Set(filteredRecords.map((record) => record.agentName)).size;
+    const totalDates = new Set(filteredRecords.map((record) => record.weekEnding)).size;
+    const latestUpdatedDisplay = getLatestLastUpdatedDisplay(filteredRecords);
+    elements.dataStatusText.textContent =
+      state.filters.agent === "all"
+        ? `${filteredRecords.length} ${rowLabel} across ${totalAgents} agents and ${totalDates} date range(s).${showLastUpdated && latestUpdatedDisplay !== "--" ? ` Last updated ${latestUpdatedDisplay}.` : ""}`
+        : `${filteredRecords.length} ${focusLabel === "transfer" ? "transfer rows" : "AHT rows"} for ${state.filters.agent} across ${totalDates} date range(s).${showLastUpdated && latestUpdatedDisplay !== "--" ? ` Last updated ${latestUpdatedDisplay}.` : ""}`;
+    if (elements.realtimeLastUpdatedText) {
+      elements.realtimeLastUpdatedText.textContent = showLastUpdated ? latestUpdatedDisplay : "--";
+    }
+    if (elements.realtimeLastUpdatedPill) {
+      elements.realtimeLastUpdatedPill.hidden = !showLastUpdated;
+    }
+    return;
+  }
+
+  if (state.dashboardFocus === "aht") {
+    const showLastUpdated = shouldShowRealtimeLastUpdated();
+    const totalAgents = new Set(filteredRecords.map((record) => record.agentName)).size;
+    const totalDates = new Set(filteredRecords.map((record) => record.weekEnding)).size;
+    const latestUpdatedDisplay = getLatestLastUpdatedDisplay(filteredRecords);
+    elements.dataStatusText.textContent =
+      state.filters.agent === "all"
+        ? `${filteredRecords.length} AHT rows across ${totalAgents} agents and ${totalDates} date range(s).${showLastUpdated && latestUpdatedDisplay !== "--" ? ` Last updated ${latestUpdatedDisplay}.` : ""}`
+        : `${filteredRecords.length} AHT rows for ${state.filters.agent} across ${totalDates} date range(s).${showLastUpdated && latestUpdatedDisplay !== "--" ? ` Last updated ${latestUpdatedDisplay}.` : ""}`;
+    if (elements.realtimeLastUpdatedText) {
+      elements.realtimeLastUpdatedText.textContent = showLastUpdated ? latestUpdatedDisplay : "--";
+    }
+    if (elements.realtimeLastUpdatedPill) {
+      elements.realtimeLastUpdatedPill.hidden = !showLastUpdated;
+    }
+    return;
+  }
+
+  if (state.dashboardFocus === "admits") {
+    const totalAgents = new Set(filteredRecords.map((record) => record.agentName)).size;
+    const totalDates = new Set(filteredRecords.map((record) => record.weekEnding)).size;
+    const latestUpdatedDisplay = getLatestAdmitsLastUpdatedDisplay(filteredRecords);
+    elements.dataStatusText.textContent =
+      state.filters.agent === "all"
+        ? `${filteredRecords.length} admits rows across ${totalAgents} agents and ${totalDates} date range(s).${latestUpdatedDisplay !== "--" ? ` Last updated ${latestUpdatedDisplay}.` : ""}`
+        : `${filteredRecords.length} admits rows for ${state.filters.agent} across ${totalDates} date range(s).${latestUpdatedDisplay !== "--" ? ` Last updated ${latestUpdatedDisplay}.` : ""}`;
+    if (elements.realtimeLastUpdatedText) {
+      elements.realtimeLastUpdatedText.textContent = latestUpdatedDisplay;
+    }
+    if (elements.realtimeLastUpdatedPill) {
+      elements.realtimeLastUpdatedPill.hidden = latestUpdatedDisplay === "--";
+    }
+    return;
+  }
+
+  if (state.dashboardFocus === "qa") {
+    const totalAgents = new Set(filteredRecords.map((record) => record.agentName)).size;
+    const totalDates = new Set(filteredRecords.map((record) => record.weekEnding)).size;
+    const latestUpdatedDisplay = getLatestQaLastUpdatedDisplay(filteredRecords);
+    elements.dataStatusText.textContent =
+      state.filters.agent === "all"
+        ? `${filteredRecords.length} QA rows across ${totalAgents} agents and ${totalDates} date range(s).${latestUpdatedDisplay !== "--" ? ` Last updated ${latestUpdatedDisplay}.` : ""}`
+        : `${filteredRecords.length} QA rows for ${state.filters.agent} across ${totalDates} date range(s).${latestUpdatedDisplay !== "--" ? ` Last updated ${latestUpdatedDisplay}.` : ""}`;
+    if (elements.realtimeLastUpdatedText) {
+      elements.realtimeLastUpdatedText.textContent = latestUpdatedDisplay;
+    }
+    if (elements.realtimeLastUpdatedPill) {
+      elements.realtimeLastUpdatedPill.hidden = latestUpdatedDisplay === "--";
     }
     return;
   }
@@ -1464,12 +1825,13 @@ function updateStatus(filteredRecords) {
   const qaAvailable = filteredRecords.some((record) => hasValidNumber(record.qaScore));
   elements.dataStatusText.textContent =
     state.filters.agent === "all"
-      ? `${filteredRecords.length} score rows across ${totalAgents} agents and ${totalWeeks} weeks.${qaAvailable ? "" : " QA data is pending, so overall rankings are using the available KPIs only."}`
-      : `${filteredRecords.length} score rows for ${state.filters.agent} across ${totalWeeks} week(s).${qaAvailable ? "" : " QA data is pending, so overall scores are using the available KPIs only."}`;
+      ? `${filteredRecords.length} score rows across ${totalAgents} agents and ${totalWeeks} date ranges.${qaAvailable ? "" : " QA data is pending, so overall rankings are using the available KPIs only."}`
+      : `${filteredRecords.length} score rows for ${state.filters.agent} across ${totalWeeks} date range(s).${qaAvailable ? "" : " QA data is pending, so overall scores are using the available KPIs only."}`;
 }
 
 function updateLayoutVisibility() {
   const isAgentView = state.filters.agent !== "all";
+  const singleKpiFocus = isSingleKpiFocus();
   elements.teamOnlySections.forEach((section) => {
     section.classList.toggle("is-hidden", isAgentView);
   });
@@ -1478,16 +1840,30 @@ function updateLayoutVisibility() {
   });
 
   const focus = state.dashboardFocus;
+  const showCompactSingleKpiCharts = ["transfer", "admits", "aht", "attendance", "qa"].includes(focus);
+
+  if (elements.distributionSection && elements.performersSection && elements.diagnosticsSection) {
+    const distributionHost = showCompactSingleKpiCharts ? elements.performersSection : elements.diagnosticsSection;
+    if (elements.distributionSection.parentElement !== distributionHost) {
+      distributionHost.appendChild(elements.distributionSection);
+    }
+  }
+  if (elements.agentsSection) {
+    elements.agentsSection.classList.toggle("is-hidden", showCompactSingleKpiCharts);
+  }
+
   elements.summaryCards.forEach((card) => {
     const group = card.dataset.focusGroup;
     const kpi = card.dataset.kpi;
     const visible =
       !group
-        ? true
+        ? focus === "all" || focus === "performance" || focus === "realtime"
         : focus === "all"
         ? true
         : (focus === "performance" || focus === "realtime")
-          ? group === "performance"
+        ? group === "performance"
+        : isSingleKpiFocus()
+          ? kpi === focus
           : kpi === "overall" || group === focus;
     card.classList.toggle("is-hidden", !visible);
   });
@@ -1497,20 +1873,39 @@ function updateLayoutVisibility() {
       ? true
       : (focus === "performance" || focus === "realtime")
       ? node.dataset.focusGroup === "performance"
+      : ["transfer", "admits", "aht"].includes(focus)
+        ? node.dataset.distributionItem === focus
       : node.dataset.focusGroup === focus;
     node.classList.toggle("is-hidden", !visible);
   });
 
-  elements.contributionCard?.classList.toggle("is-hidden", focus === "performance" || focus === "realtime");
+  elements.contributionCard?.classList.toggle("is-hidden", PERFORMANCE_FOCUS_KEYS.includes(focus) || singleKpiFocus);
+
+  if (elements.trendsSection) {
+    elements.trendsSection.classList.toggle("is-hidden", focus === "attendance" || focus === "qa");
+  }
+  if (elements.snapshotSection) {
+    elements.snapshotSection.classList.toggle("is-hidden", false);
+  }
+  if (elements.performersSection) {
+    elements.performersSection.classList.toggle("is-hidden", false);
+  }
+  if (elements.deepDiveSection) {
+    elements.deepDiveSection.classList.toggle("is-hidden", focus === "attendance" || focus === "qa");
+  }
+  if (elements.diagnosticsSection) {
+    elements.diagnosticsSection.classList.toggle("is-hidden", !["all", "performance", "realtime"].includes(focus));
+  }
 }
 
 function updateDashboard() {
   const activeDataset = getActiveDataset();
-  const dashboardRecords = getFilteredRecords(activeDataset.records, { ...state.filters, search: "" });
-  const tableRecords = getFilteredRecords(activeDataset.records, state.filters);
-  const trendRecords = getFilteredRecords(activeDataset.records, {
+  const focusRecords = getFocusScopedRecords(activeDataset.records);
+  const dashboardRecords = getFilteredRecords(focusRecords, { ...state.filters, search: "" });
+  const tableRecords = getCurrentTableRecords();
+  const trendRecords = getFilteredRecords(focusRecords, {
     ...state.filters,
-    month: isRealtimeFocus() ? "all" : state.filters.month,
+    month: usesRealtimeSource() ? "all" : state.filters.month,
     week: "all",
     search: "",
   });
@@ -1534,8 +1929,8 @@ function applyDashboardFocus() {
   const focusLabel = FOCUS_SCORING[state.dashboardFocus].title;
   const realtimeFocus = isRealtimeFocus();
   const performanceLike = isPerformanceLikeFocus();
-  if (realtimeFocus) {
-    state.filters.month = "all";
+  if (usesRealtimeSource()) {
+    state.filters.month = state.realtimeDataset?.monthOptions?.at(-1) || "all";
     state.filters.week = getLatestRealtimeWeek();
   }
   syncFilterOptions();
@@ -1547,25 +1942,27 @@ function applyDashboardFocus() {
     button.classList.toggle("is-active", active);
     button.setAttribute("aria-selected", String(active));
   });
+  elements.summaryCardsList.forEach((card) => {
+    card.classList.remove("is-mobile-expanded");
+    card.setAttribute("aria-expanded", "false");
+  });
 
   if (elements.monthFilterField && elements.weekFilterField && elements.monthFilterLabel && elements.weekFilterLabel) {
-    elements.monthFilterField.classList.toggle("is-hidden", realtimeFocus);
-    elements.weekFilterLabel.textContent = realtimeFocus ? "Date" : "Week Ending";
+    elements.monthFilterField.classList.toggle("is-hidden", false);
+    elements.weekFilterLabel.textContent = "Date Range";
     elements.monthFilterLabel.textContent = "Month";
   }
   if (elements.topFiltersTitle) {
-    elements.topFiltersTitle.textContent = realtimeFocus
-      ? "Filter by date and agent"
-      : "Filter by month, week, and agent";
-  }
-  if (elements.weekFilter && elements.dateFilter) {
-    elements.weekFilter.hidden = realtimeFocus;
-    elements.dateFilter.hidden = !realtimeFocus;
+    elements.topFiltersTitle.textContent = "Filter by month, date range, and agent";
   }
   if (elements.realtimeLastUpdatedPill && elements.realtimeLastUpdatedText) {
-    elements.realtimeLastUpdatedPill.hidden = !shouldShowRealtimeLastUpdated();
+    elements.realtimeLastUpdatedPill.hidden = !shouldShowFocusLastUpdated();
     const activeDataset = getActiveDataset();
-    elements.realtimeLastUpdatedText.textContent = realtimeFocus
+    elements.realtimeLastUpdatedText.textContent = state.dashboardFocus === "admits"
+      ? getLatestAdmitsLastUpdatedDisplay(getFilteredRecords(activeDataset.records, { ...state.filters, search: "" }))
+      : state.dashboardFocus === "qa"
+      ? getLatestQaLastUpdatedDisplay(getFilteredRecords(activeDataset.records, { ...state.filters, search: "" }))
+      : usesRealtimeSource()
       ? shouldShowRealtimeLastUpdated()
         ? activeDataset?.lastUpdatedDisplay || "N/A"
         : "--"
@@ -1574,12 +1971,12 @@ function applyDashboardFocus() {
 
   if (elements.trendSectionTitle) {
     elements.trendSectionTitle.textContent = state.dashboardFocus === "all"
-      ? "Weekly KPI trends"
+      ? "KPI trends"
       : realtimeFocus
       ? "Real-time performance trends"
-      : performanceLike
-      ? "Weekly performance trends"
-      : `Weekly ${focusLabel.toLowerCase()} trends`;
+      : state.dashboardFocus === "performance"
+      ? "Performance trends"
+      : `${focusLabel} trends`;
   }
   if (elements.snapshotSectionTitle) {
     elements.snapshotSectionTitle.textContent = realtimeFocus ? "Real-time performance snapshot" : state.dashboardFocus === "all" ? "KPI score snapshot" : `${focusLabel} score snapshot`;
@@ -1599,14 +1996,14 @@ function applyDashboardFocus() {
   if (elements.breakdownSectionTitle) {
     elements.breakdownSectionTitle.textContent = state.dashboardFocus === "all"
       ? "KPI breakdown per agent"
-      : performanceLike
+      : state.dashboardFocus === "performance" || realtimeFocus
       ? "Performance KPI breakdown per agent"
       : `${focusLabel} breakdown per agent`;
   }
   if (elements.distributionSectionTitle) {
     elements.distributionSectionTitle.textContent = state.dashboardFocus === "all"
       ? "Agent score distribution by KPI"
-      : performanceLike
+      : state.dashboardFocus === "performance" || realtimeFocus
       ? "Performance KPI score distribution"
       : `${focusLabel} score distribution`;
   }
@@ -1615,36 +2012,45 @@ function applyDashboardFocus() {
       ? "All agents KPI score table"
       : realtimeFocus
       ? "Real-time performance table"
-      : performanceLike
+      : state.dashboardFocus === "performance"
       ? "Performance KPI score table"
       : `${focusLabel} score table`;
   }
   if (elements.tableSectionSubnote) {
     elements.tableSectionSubnote.textContent = state.dashboardFocus === "all"
-      ? "Balanced weekly view across performance, attendance, and quality assurance."
+      ? "Balanced date-range view across performance, attendance, and quality assurance."
       : realtimeFocus
-      ? "Live CTM performance rows by date, compared against yesterday when available."
-      : performanceLike
+      ? "Live CTM performance rows by date range, compared against the previous available range."
+      : state.dashboardFocus === "performance"
       ? "Focused on transfer, admits, and AHT rows for the selected scope."
+      : ["transfer", "admits", "aht"].includes(state.dashboardFocus)
+      ? `Focused on ${focusLabel.toLowerCase()} rows, with grouped performance details for debugging.`
       : state.dashboardFocus === "attendance"
-        ? "Focused on attendance score movement, with performance and overall kept for context."
-        : "Focused on quality assurance rows, with performance and overall kept for context.";
+        ? "Focused on attendance rows and attendance score movement for the selected scope."
+        : "Focused on quality assurance rows, QA scoring, and source updates for the selected scope.";
   }
   if (elements.tableRowHint) {
-    elements.tableRowHint.textContent = performanceLike
+    elements.tableRowHint.textContent = isSingleKpiFocus()
+      ? ""
+      : state.dashboardFocus === "performance" || realtimeFocus
       ? "Click any row to view grouped Transfer, Admits, and AHT details."
-      : "Click any row to open the detailed KPI breakdown.";
+      : ["transfer", "admits", "aht"].includes(state.dashboardFocus)
+      ? `Click any row to open the ${focusLabel.toLowerCase()} debugging details.`
+      : state.dashboardFocus === "attendance"
+        ? "Click any row to open the attendance details."
+        : "Click any row to open the quality assurance details.";
+    elements.tableRowHint.classList.toggle("is-hidden", isSingleKpiFocus());
   }
   if (elements.tableSearch) {
     elements.tableSearch.placeholder = state.dashboardFocus === "all"
-      ? "Search agent, week, or KPI row"
+      ? "Search agent, date range, or KPI row"
       : realtimeFocus
-      ? "Search agent, date, or real-time row"
+      ? "Search agent, date range, or real-time row"
       : performanceLike
-      ? "Search agent, week, or performance row"
+      ? "Search agent, date range, or performance row"
       : state.dashboardFocus === "attendance"
-        ? "Search agent, week, or attendance row"
-        : "Search agent, week, or quality row";
+        ? "Search agent, date range, or attendance row"
+        : "Search agent, date range, or quality row";
   }
 
   state.mobileDistributionPanel = FOCUS_SCORING[state.dashboardFocus].distribution;
@@ -1659,7 +2065,7 @@ function handleSortChange(key) {
     state.sort.key = key;
     state.sort.direction = key === "agentName" || key === "weekEnding" ? "asc" : "desc";
   }
-  updateTable(getFilteredRecords(getActiveDataset().records, state.filters));
+  updateTable(getCurrentTableRecords());
 }
 
 function bindNavigation() {
@@ -1671,6 +2077,24 @@ function bindNavigation() {
       state.mobileSidebarOpen = false;
       applyMobileUiState();
     });
+  });
+}
+
+function applyWeekFilterSelection(selectElement) {
+  state.filters.week = selectElement.value;
+  state.aggregateAllRanges = false;
+  state.forceAllWeekSelection = false;
+  syncFilterOptions();
+  requestAnimationFrame(() => {
+    updateDashboard();
+  });
+}
+
+function queueWeekFilterSync() {
+  requestAnimationFrame(() => {
+    if (elements.weekFilter) {
+      applyWeekFilterSelection(elements.weekFilter);
+    }
   });
 }
 
@@ -1794,7 +2218,7 @@ function bindEvents() {
   });
 
   elements.mobileMoreExport?.addEventListener("click", () => {
-    const filteredRecords = sortRecords(getFilteredRecords(getActiveDataset().records, state.filters), state.sort);
+    const filteredRecords = sortRecords(getCurrentTableRecords(), state.sort);
     exportRowsToCsv(filteredRecords, state.dashboardFocus, { showLastUpdated: shouldShowRealtimeLastUpdated() });
     state.mobileMoreOpen = false;
     applyMobileMoreState();
@@ -1843,26 +2267,17 @@ function bindEvents() {
 
   elements.monthFilter.addEventListener("change", (event) => {
     state.filters.month = event.target.value;
+    state.forceAllWeekSelection = false;
     syncFilterOptions();
     updateDashboard();
+  });
+
+  elements.weekFilter.addEventListener("input", (event) => {
+    applyWeekFilterSelection(event.target);
   });
 
   elements.weekFilter.addEventListener("change", (event) => {
-    state.filters.week = event.target.value;
-    syncFilterOptions();
-    updateDashboard();
-  });
-
-  elements.dateFilter?.addEventListener("change", (event) => {
-    const nextWeekValue = getWeekValueFromIsoDate(event.target.value);
-    if (nextWeekValue) {
-      state.filters.week = nextWeekValue;
-      syncFilterOptions();
-      updateDashboard();
-      return;
-    }
-
-    syncFilterOptions();
+    applyWeekFilterSelection(event.target);
   });
 
   elements.agentFilter.addEventListener("change", (event) => {
@@ -1876,14 +2291,14 @@ function bindEvents() {
   });
 
   elements.expandAllRowsButton?.addEventListener("click", () => {
-    const filteredRecords = sortRecords(getFilteredRecords(getActiveDataset().records, state.filters), state.sort);
+    const filteredRecords = sortRecords(getCurrentTableRecords(), state.sort);
     state.expandedRowKeys = new Set(filteredRecords.map((record) => record.key));
     updateTable(filteredRecords);
   });
 
   elements.collapseAllRowsButton?.addEventListener("click", () => {
     state.expandedRowKeys = new Set();
-    updateTable(getFilteredRecords(getActiveDataset().records, state.filters));
+    updateTable(getCurrentTableRecords());
   });
 
   elements.resetFilters.addEventListener("click", () => {
@@ -1902,7 +2317,7 @@ function bindEvents() {
   });
 
   elements.exportCsvButton.addEventListener("click", () => {
-    const filteredRecords = sortRecords(getFilteredRecords(getActiveDataset().records, state.filters), state.sort);
+    const filteredRecords = sortRecords(getCurrentTableRecords(), state.sort);
     exportRowsToCsv(filteredRecords, state.dashboardFocus, { showLastUpdated: shouldShowRealtimeLastUpdated() });
   });
 }

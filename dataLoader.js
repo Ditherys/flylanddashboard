@@ -18,7 +18,9 @@ export const DATA_SOURCES = {
 const FIELD_ALIASES = {
   weekending: "weekEnding",
   week_ending: "weekEnding",
-  date: "dateRange",
+  date: "date",
+  daterange: "dateRange",
+  date_range: "dateRange",
   agent: "agentName",
   username: "agentName",
   user_name: "agentName",
