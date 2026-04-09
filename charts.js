@@ -1355,6 +1355,185 @@ export function renderDistributionChart(canvas, chart, records, field, label, co
   });
 }
 
+export function renderAgentDeltaVarianceChart(canvas, chart, deltas, config = {}) {
+  destroyIfExists(chart);
+  const isMobile = isMobileViewport();
+  const color = config.color || CHART_COLORS.overall;
+  const sorted = [...deltas]
+    .filter((item) => typeof item.delta === "number" && !Number.isNaN(item.delta))
+    .sort((left, right) => right.delta - left.delta);
+
+  return new Chart(canvas, {
+    type: "bar",
+    data: {
+      labels: sorted.map((item) => getChartDisplayName(item.agentName)),
+      datasets: [
+        {
+          label: config.metricLabel || "Variance",
+          data: sorted.map((item) => item.delta),
+          backgroundColor: sorted.map((item) => item.delta >= 0 ? color : hexToRgba(color, 0.28)),
+          borderColor: sorted.map(() => color),
+          borderWidth: 1.2,
+          borderRadius: 10,
+          maxBarThickness: 30,
+        },
+      ],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        valueLabelPlugin: {
+          enabled: true,
+          color: "#10213d",
+          fontSize: isMobile ? 10 : 11,
+          fontWeight: "800",
+          offset: isMobile ? 6 : 10,
+          formatter(value) {
+            const prefix = value > 0 ? "+" : "";
+            return `${prefix}${Number(value).toFixed(2)}`;
+          },
+        },
+        tooltip: {
+          ...buildBaseOptions().plugins.tooltip,
+          callbacks: {
+            title(items) {
+              return items[0]?.label || "";
+            },
+            label(context) {
+              const item = sorted[context.dataIndex];
+              const prefix = item.delta > 0 ? "+" : "";
+              return [
+                `${config.metricLabel || "Variance"}: ${prefix}${Number(item.delta).toFixed(2)}`,
+                `${config.primaryLabel || "Primary"}: ${item.primaryValue === null || item.primaryValue === undefined ? "N/A" : Number(item.primaryValue).toFixed(2)}`,
+                `${config.compareLabel || "Compare"}: ${item.compareValue === null || item.compareValue === undefined ? "N/A" : Number(item.compareValue).toFixed(2)}`,
+              ];
+            },
+          },
+        },
+      },
+      scales: {
+        y: {
+          beginAtZero: false,
+          grid: { color: "rgba(16, 33, 61, 0.08)" },
+          ticks: {
+            callback(value) {
+              const prefix = Number(value) > 0 ? "+" : "";
+              return `${prefix}${Number(value).toFixed(1)}`;
+            },
+          },
+        },
+        x: {
+          grid: { display: false },
+          ticks: {
+            font: { size: isMobile ? 10 : 12 },
+            callback(value) {
+              const label = this.getLabelForValue(value);
+              if (!isMobile) return label;
+              return label.length > 12 ? `${label.slice(0, 12)}...` : label;
+            },
+          },
+        },
+      },
+      layout: {
+        padding: {
+          top: isMobile ? 14 : 4,
+          right: 6,
+        },
+      },
+    },
+  });
+}
+
+export function renderRangeComparisonChart(canvas, chart, config) {
+  destroyIfExists(chart);
+  const isMobile = isMobileViewport();
+  const color = config.color || CHART_COLORS.overall;
+  const labels = [config.compareLabel || "Compare", config.primaryLabel || "Primary"];
+  const values = [config.compareValue ?? null, config.primaryValue ?? null];
+
+  return new Chart(canvas, {
+    type: "bar",
+    data: {
+      labels,
+      datasets: [
+        {
+          label: config.metricLabel || "Score",
+          data: values,
+          backgroundColor: [hexToRgba(color, 0.3), color],
+          borderColor: [hexToRgba(color, 0.55), color],
+          borderWidth: 1.2,
+          borderRadius: 12,
+          categoryPercentage: 0.62,
+          barPercentage: 0.92,
+          maxBarThickness: 42,
+        },
+      ],
+    },
+    options: {
+      ...buildBaseOptions(),
+      plugins: {
+        ...buildBaseOptions().plugins,
+        legend: { display: false },
+        valueLabelPlugin: {
+          enabled: true,
+          color: "#10213d",
+          fontSize: 11,
+          fontWeight: "800",
+          offset: 10,
+          formatter(value, context) {
+            if (context.dataIndex !== 1 || values[0] === null || values[0] === undefined) {
+              return Number(value).toFixed(2);
+            }
+            const delta = Number(values[1]) - Number(values[0]);
+            const prefix = delta > 0 ? "+" : "";
+            return `${prefix}${delta.toFixed(2)}`;
+          },
+        },
+        tooltip: {
+          ...buildBaseOptions().plugins.tooltip,
+          callbacks: {
+            title(items) {
+              return items[0]?.label || "";
+            },
+            label(context) {
+              return `${config.metricLabel || "Score"}: ${Number(context.parsed.y).toFixed(2)}`;
+            },
+            footer() {
+              if (values[0] === null || values[0] === undefined || values[1] === null || values[1] === undefined) {
+                return "";
+              }
+              const delta = Number(values[1]) - Number(values[0]);
+              const prefix = delta > 0 ? "+" : "";
+              return `Delta: ${prefix}${delta.toFixed(2)}`;
+            },
+          },
+        },
+      },
+      scales: {
+        y: {
+          beginAtZero: true,
+          max: 5,
+          grid: { color: "rgba(16, 33, 61, 0.08)" },
+          ticks: { stepSize: 1 },
+        },
+        x: {
+          grid: { display: false },
+          ticks: {
+            font: { size: isMobile ? 10 : 12 },
+            callback(value) {
+              const label = this.getLabelForValue(value);
+              if (!isMobile) return label;
+              return label.length > 14 ? `${label.slice(0, 14)}...` : label;
+            },
+          },
+        },
+      },
+    },
+  });
+}
+
 export function renderScoreSpreadChart(canvas, chart, records, options = {}) {
   destroyIfExists(chart);
   const isMobile = isMobileViewport();

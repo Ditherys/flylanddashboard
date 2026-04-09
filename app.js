@@ -16,10 +16,12 @@ import {
 import { getAvailableAgents, getAvailableWeeks, getFilteredRecords, populateSelect } from "./filters.js";
 import {
   renderBarChart,
+  renderAgentDeltaVarianceChart,
   renderComparisonChart,
   renderContributionChart,
   renderDistributionChart,
   renderLineChart,
+  renderRangeComparisonChart,
   renderScoreSpreadChart,
   renderStackedBarChart,
   renderVarianceChart,
@@ -45,6 +47,10 @@ const state = {
   resizeRaf: null,
   charts: {},
   initialized: false,
+  dualDateRange: {
+    transfer: { initialized: false, primaryStart: "", primaryEnd: "", compareEnabled: false, compareStart: "", compareEnd: "" },
+    aht: { initialized: false, primaryStart: "", primaryEnd: "", compareEnabled: false, compareStart: "", compareEnd: "" },
+  },
 };
 
 const KPI_DEFINITIONS = [
@@ -111,6 +117,17 @@ const elements = {
   mobileLastUpdatedStrip: document.querySelector("#mobileLastUpdatedStrip"),
   mobileLastUpdatedText: document.querySelector("#mobileLastUpdatedText"),
   mobileHomeButtons: [...document.querySelectorAll("[data-mobile-target]")],
+  dualDateRangeSection: document.querySelector("#dualDateRangeSection"),
+  compareRangeHeaderToggle: document.querySelector("#compareRangeHeaderToggle"),
+  primaryDateStart: document.querySelector("#primaryDateStart"),
+  primaryDateEnd: document.querySelector("#primaryDateEnd"),
+  compareDateToggle: document.querySelector("#compareDateToggle"),
+  compareDateStartField: document.querySelector("#compareDateStartField"),
+  compareDateEndField: document.querySelector("#compareDateEndField"),
+  compareDateStart: document.querySelector("#compareDateStart"),
+  compareDateEnd: document.querySelector("#compareDateEnd"),
+  dualRangeAgentFilter: document.querySelector("#dualRangeAgentFilter"),
+  dualRangeReset: document.querySelector("#dualRangeReset"),
   focusButtons: [...document.querySelectorAll("[data-dashboard-focus]")],
   mobileBottomNavButtons: [...document.querySelectorAll(".mobile-bottom-nav-button[data-mobile-action]")],
   summaryCardsList: [...document.querySelectorAll(".summary-card")],
@@ -136,6 +153,7 @@ const elements = {
   weekFilterField: document.querySelector("#weekFilterField"),
   agentFilterField: document.querySelector("#agentFilterField"),
   topFiltersTitle: document.querySelector("#topFiltersTitle"),
+  topFiltersGrid: document.querySelector(".top-filters-grid"),
   monthFilterLabel: document.querySelector("#monthFilterLabel"),
   weekFilterLabel: document.querySelector("#weekFilterLabel"),
   agentFilterLabel: document.querySelector("#agentFilterLabel"),
@@ -162,6 +180,7 @@ const elements = {
   weekScoreChart: document.querySelector("#weekScoreChart"),
   contributionChart: document.querySelector("#contributionChart"),
   varianceChart: document.querySelector("#varianceChart"),
+  varianceCard: document.querySelector("#varianceChart")?.closest(".chart-card"),
   transferDistributionChart: document.querySelector("#transferDistributionChart"),
   admitsDistributionChart: document.querySelector("#admitsDistributionChart"),
   ahtDistributionChart: document.querySelector("#ahtDistributionChart"),
@@ -298,6 +317,16 @@ function getLatestDisplayFrom(records, dateKey, displayKey) {
 }
 
 function getCurrentTableRecords(search = state.filters.search) {
+  if (isDualRangeFocus()) {
+    const dualData = getDualRangeDashboardData();
+    if (!dualData) return [];
+    if (!search) return dualData.tableRecords;
+    const searchTerm = search.trim().toLowerCase();
+    return dualData.tableRecords.filter((record) =>
+      `${record.agentName} ${record.weekEnding}`.toLowerCase().includes(searchTerm)
+    );
+  }
+
   const activeDataset = getActiveDataset();
   const focusRecords = getFocusScopedRecords(activeDataset.records);
   const currentFilters = {
@@ -350,7 +379,10 @@ function getCurrentTableRecords(search = state.filters.search) {
     const qaPercentValue = qaValues.length
       ? qaValues.reduce((sum, value) => sum + value, 0) / qaValues.length
       : null;
-    const transferRate = calculateTransferRate(transferCount || null, firstTimeCaller || null);
+    const transferRate = calculateTransferRate(
+      transferCount === null || transferCount === undefined ? null : transferCount,
+      firstTimeCaller === null || firstTimeCaller === undefined ? null : firstTimeCaller
+    );
     const transferScore = calculateTransferScore(transferRate);
     const admitsScore = calculateAdmitsScore(admitsCount || null);
     const ahtSeconds = inboundCalls > 0 ? (inboundMinutesSeconds + holdTimeSeconds) / inboundCalls : null;
@@ -553,6 +585,21 @@ function bindSummaryCardInteractions() {
 }
 
 function resetDashboardFilters() {
+  if (isDualRangeFocus()) {
+    state.filters.agent = "all";
+    state.filters.search = "";
+    const dualState = getDualDateRangeState();
+    if (dualState) {
+      dualState.initialized = false;
+      ensureDualDateRangeDefaults(true);
+    }
+    state.expandedRowKeys = new Set();
+    elements.tableSearch.value = "";
+    syncDualDateRangeControls();
+    updateDashboard();
+    return;
+  }
+
   const activeDataset = getActiveDataset();
   const focusRecords = getFocusScopedRecords(activeDataset.records);
   const monthOptions = [...new Set(focusRecords.map((record) => record.monthLabel))];
@@ -885,6 +932,388 @@ function formatSignedDelta(delta) {
   if (delta === null || delta === undefined || Number.isNaN(delta)) return "N/A";
   const prefix = delta > 0 ? "+" : "";
   return `${prefix}${Number(delta).toFixed(2)}`;
+}
+
+function parseInputDate(value) {
+  if (!value) return null;
+  const parsed = new Date(`${value}T00:00:00`);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function formatInputDate(date) {
+  if (!(date instanceof Date) || Number.isNaN(date.getTime())) return "";
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function formatShortRange(dateStart, dateEnd) {
+  if (!(dateStart instanceof Date) || !(dateEnd instanceof Date)) return "Custom date range";
+  const options = { month: "2-digit", day: "2-digit" };
+  return `${dateStart.toLocaleDateString("en-US", options)} - ${dateEnd.toLocaleDateString("en-US", options)}`;
+}
+
+// Filters CTM daily rows against the chosen inclusive start/end dates.
+function filterByDateRange(data, start, end) {
+  if (!(start instanceof Date) || Number.isNaN(start.getTime())) return [];
+  if (!(end instanceof Date) || Number.isNaN(end.getTime())) return [];
+  const startTime = start.getTime();
+  const endTime = end.getTime();
+  return data.filter((item) => {
+    const dateValue = item?.dateAt instanceof Date ? item.dateAt : null;
+    const time = dateValue?.getTime?.() ?? NaN;
+    return !Number.isNaN(time) && time >= startTime && time <= endTime;
+  });
+}
+
+// Recomputes the active KPI from the filtered CTM rows only.
+function computeKPI(data, focus) {
+  if (!Array.isArray(data) || !data.length) {
+    return { score: null, rawText: "No valid records in the selected range.", valueText: "N/A" };
+  }
+
+  const perAgentRecords = aggregateDualRangeRecords(data, "Selected Date Range");
+
+  if (focus === "transfer") {
+    const transferRatePercent = averageField(perAgentRecords, "transferRatePercent");
+    const transferScore = averageField(perAgentRecords, "transferScore");
+    return {
+      score: transferScore,
+      valueText: formatScore(transferScore),
+      rawText: `Primary range ${formatShortRange(data[0]?.dateAt, data.at(-1)?.dateAt)} | Mean agent transfer rate ${formatPercent(transferRatePercent)}`,
+    };
+  }
+
+  if (focus === "aht") {
+    const ahtSeconds = averageField(perAgentRecords, "ahtSeconds");
+    const ahtScore = averageField(perAgentRecords, "ahtScore");
+    return {
+      score: ahtScore,
+      valueText: formatScore(ahtScore),
+      rawText: `Primary range ${formatShortRange(data[0]?.dateAt, data.at(-1)?.dateAt)} | Mean agent AHT ${formatTimeFromSeconds(ahtSeconds)}`,
+    };
+  }
+
+  return { score: null, rawText: "N/A", valueText: "N/A" };
+}
+
+// Keeps delta math isolated so the scorecard render stays simple.
+function computeDelta(current, compare) {
+  if (
+    current === null ||
+    current === undefined ||
+    Number.isNaN(current) ||
+    compare === null ||
+    compare === undefined ||
+    Number.isNaN(compare)
+  ) {
+    return null;
+  }
+  return current - compare;
+}
+
+function getDualDateRangeState() {
+  return state.dualDateRange[state.dashboardFocus] || null;
+}
+
+function isDualRangeFocus() {
+  return ["transfer", "aht"].includes(state.dashboardFocus);
+}
+
+function getScopedRealtimeDailyRecords() {
+  const dailyRecords = state.realtimeDataset?.dailyRecords || [];
+  return dailyRecords.filter((record) => state.filters.agent === "all" || record.agentName === state.filters.agent);
+}
+
+function getAllRealtimeDailyRecordsForFocus() {
+  return state.realtimeDataset?.dailyRecords || [];
+}
+
+function ensureDualDateRangeDefaults(force = false) {
+  const dualState = getDualDateRangeState();
+  if (!dualState) return;
+  if (dualState.initialized && !force) return;
+
+  const dailyRecords = getScopedRealtimeDailyRecords();
+  const dated = dailyRecords
+    .map((record) => record.dateAt)
+    .filter((value) => value instanceof Date && !Number.isNaN(value.getTime()))
+    .sort((left, right) => left.getTime() - right.getTime());
+  const latest = dated.at(-1);
+  if (!latest) return;
+
+  dualState.primaryStart = formatInputDate(latest);
+  dualState.primaryEnd = formatInputDate(latest);
+  dualState.compareEnabled = false;
+  dualState.compareStart = "";
+  dualState.compareEnd = "";
+  dualState.initialized = true;
+}
+
+function syncDualDateRangeControls() {
+  if (!elements.dualDateRangeSection) return;
+  const active = isDualRangeFocus();
+  elements.dualDateRangeSection.classList.toggle("is-hidden", !active);
+  elements.compareRangeHeaderToggle?.classList.toggle("is-hidden", !active);
+  elements.topFiltersGrid?.classList.toggle("is-hidden", active);
+  elements.monthFilterField?.classList.toggle("is-hidden", active);
+  elements.weekFilterField?.classList.toggle("is-hidden", active);
+  elements.agentFilterField?.classList.toggle("is-hidden", active);
+  elements.resetFilters?.closest(".top-filter-action")?.classList.toggle("is-hidden", active);
+  if (!active) return;
+
+  ensureDualDateRangeDefaults();
+  const dualState = getDualDateRangeState();
+  if (!dualState) return;
+
+  const agentOptions = [...new Set(getAllRealtimeDailyRecordsForFocus().map((record) => record.agentName))].sort((left, right) =>
+    left.localeCompare(right)
+  );
+  if (elements.dualRangeAgentFilter) {
+    populateSelect(elements.dualRangeAgentFilter, agentOptions, "All Agents");
+    elements.dualRangeAgentFilter.value = state.filters.agent;
+  }
+
+  elements.primaryDateStart.value = dualState.primaryStart || "";
+  elements.primaryDateEnd.value = dualState.primaryEnd || "";
+  elements.compareDateToggle.checked = Boolean(dualState.compareEnabled);
+  elements.compareDateStart.value = dualState.compareStart || "";
+  elements.compareDateEnd.value = dualState.compareEnd || "";
+  elements.compareDateStartField?.classList.toggle("is-hidden", !dualState.compareEnabled);
+  elements.compareDateEndField?.classList.toggle("is-hidden", !dualState.compareEnabled);
+}
+
+function getDualDateRangeComparison() {
+  const dualState = getDualDateRangeState();
+  if (!dualState || !["transfer", "aht"].includes(state.dashboardFocus)) return null;
+
+  ensureDualDateRangeDefaults();
+  const scopedDailyRecords = getScopedRealtimeDailyRecords();
+  const primaryStart = parseInputDate(dualState.primaryStart);
+  const primaryEnd = parseInputDate(dualState.primaryEnd);
+  const primaryRecords = filterByDateRange(scopedDailyRecords, primaryStart, primaryEnd)
+    .sort((left, right) => (left.dateAt?.getTime() ?? 0) - (right.dateAt?.getTime() ?? 0));
+  const currentMetrics = computeKPI(primaryRecords, state.dashboardFocus);
+
+  if (!dualState.compareEnabled) {
+    return { currentMetrics, compareMetrics: null, delta: null, compareEnabled: false };
+  }
+
+  const compareStart = parseInputDate(dualState.compareStart);
+  const compareEnd = parseInputDate(dualState.compareEnd);
+  const compareRecords = filterByDateRange(scopedDailyRecords, compareStart, compareEnd)
+    .sort((left, right) => (left.dateAt?.getTime() ?? 0) - (right.dateAt?.getTime() ?? 0));
+  const compareMetrics = computeKPI(compareRecords, state.dashboardFocus);
+  const delta = computeDelta(currentMetrics.score, compareMetrics.score);
+  return { currentMetrics, compareMetrics, delta, compareEnabled: true };
+}
+
+function getSelectedPrimaryRangeLabel() {
+  const dualState = getDualDateRangeState();
+  const start = parseInputDate(dualState?.primaryStart);
+  const end = parseInputDate(dualState?.primaryEnd);
+  if (!(start instanceof Date) || !(end instanceof Date)) return "Selected Date Range";
+  return `${start.toLocaleDateString("en-US")} - ${end.toLocaleDateString("en-US")}`;
+}
+
+function aggregateDualRangeRecords(records, rangeLabel) {
+  const grouped = new Map();
+
+  records.forEach((record) => {
+    const key = `${(record.email || "").toLowerCase()}__${record.agentName}`;
+    const bucket = grouped.get(key) || [];
+    bucket.push(record);
+    grouped.set(key, bucket);
+  });
+
+  return [...grouped.values()].map((items) => {
+    const base = items[0];
+    const firstTimeCaller = items.reduce((sum, item) => sum + (Number(item.firstTimeCaller) || 0), 0);
+    const transferCount = items.reduce((sum, item) => sum + (Number(item.transferCount) || 0), 0);
+    const inboundCalls = items.reduce((sum, item) => sum + (Number(item.inboundCalls) || 0), 0);
+    const inboundMinutesSeconds = items.reduce((sum, item) => sum + (Number(item.inboundMinutesSeconds) || 0), 0);
+    const holdTimeSeconds = items.reduce((sum, item) => sum + (Number(item.holdTimeSeconds) || 0), 0);
+    const transferRate = calculateTransferRate(
+      transferCount === null || transferCount === undefined ? null : transferCount,
+      firstTimeCaller === null || firstTimeCaller === undefined ? null : firstTimeCaller
+    );
+    const ahtSeconds = inboundCalls > 0 ? (inboundMinutesSeconds + holdTimeSeconds) / inboundCalls : null;
+    const transferScore = calculateTransferScore(transferRate);
+    const ahtScore = calculateAHTScore(ahtSeconds);
+
+    return {
+      ...base,
+      key: `dual__${base.email || base.agentName}__${rangeLabel}`,
+      weekEnding: rangeLabel,
+      dateRange: rangeLabel,
+      monthLabel: base.monthLabel,
+      firstTimeCaller,
+      transferCount,
+      inboundCalls,
+      inboundMinutesSeconds,
+      inboundMinutes: formatTimeFromSeconds(inboundMinutesSeconds),
+      holdTimeSeconds,
+      holdTime: formatTimeFromSeconds(holdTimeSeconds),
+      transferRate,
+      transferRatePercent: transferRate === null ? null : transferRate * 100,
+      transferRateDisplay: formatPercent(transferRate === null ? null : transferRate * 100),
+      transferScore,
+      ahtSeconds,
+      ahtDisplay: formatTimeFromSeconds(ahtSeconds),
+      ahtScore,
+      performanceScore: calculatePerformanceScore(transferScore, null, ahtScore),
+      overallScore: calculatePerformanceScore(transferScore, null, ahtScore),
+      lastUpdatedDisplay: getLatestLastUpdatedDisplay(items),
+      lastUpdatedAt: [...items]
+        .map((item) => item.lastUpdatedAt)
+        .filter((value) => value instanceof Date && !Number.isNaN(value.getTime()))
+        .sort((left, right) => left.getTime() - right.getTime())
+        .at(-1) || null,
+    };
+  });
+}
+
+function buildDualRangeSummaryFromRecords(records, rangeLabel) {
+  const metrics = getSummaryMetrics(records);
+  return {
+    weekEnding: rangeLabel,
+    weekDate: parseInputDate(getDualDateRangeState()?.primaryEnd),
+    monthLabel: records[0]?.monthLabel || "Custom",
+    transferScore: metrics?.transferScore ?? null,
+    admitsScore: null,
+    ahtScore: metrics?.ahtScore ?? null,
+    attendanceScore: null,
+    qaScore: null,
+    performanceScore: metrics?.performanceScore ?? null,
+    overallScore: metrics?.overallScore ?? null,
+    overallIncludesQa: false,
+    overallWeights: { performance: 1, attendance: 0, qa: 0 },
+    transferRatePercent: metrics?.transferRatePercent ?? null,
+    admitsCount: null,
+    firstTimeCaller: metrics?.firstTimeCaller ?? null,
+    transferCount: metrics?.transferCount ?? null,
+    inboundCalls: metrics?.inboundCalls ?? null,
+    inboundMinutesSeconds: metrics?.inboundMinutesSeconds ?? null,
+    holdTimeSeconds: metrics?.holdTimeSeconds ?? null,
+    ahtSeconds: metrics?.ahtSeconds ?? null,
+    attendancePercentValue: null,
+    qaPercentValue: null,
+    agentCount: metrics?.agentCount ?? 0,
+  };
+}
+
+function buildDualRangeTrendSeries(records) {
+  const grouped = new Map();
+  records.forEach((record) => {
+    const key = record.date;
+    const bucket = grouped.get(key) || [];
+    bucket.push(record);
+    grouped.set(key, bucket);
+  });
+
+  return [...grouped.entries()]
+    .map(([dateKey, items]) => {
+      const dateAt = items[0]?.dateAt || parseInputDate(dateKey);
+      const rangeLabel = dateAt ? dateAt.toLocaleDateString("en-US") : dateKey;
+      return {
+        weekEnding: rangeLabel,
+        weekDate: dateAt,
+        monthLabel: items[0]?.monthLabel || "Custom",
+        transferScore: averageField(items, "transferScore"),
+        admitsScore: null,
+        ahtScore: averageField(items, "ahtScore"),
+        attendanceScore: null,
+        qaScore: null,
+        performanceScore: averageField(items, "performanceScore"),
+        overallScore: averageField(items, "overallScore"),
+        overallIncludesQa: false,
+        overallWeights: { performance: 1, attendance: 0, qa: 0 },
+        transferRatePercent: averageField(items, "transferRatePercent"),
+        admitsCount: null,
+        firstTimeCaller: averageField(items, "firstTimeCaller"),
+        transferCount: averageField(items, "transferCount"),
+        inboundCalls: averageField(items, "inboundCalls"),
+        inboundMinutesSeconds: averageField(items, "inboundMinutesSeconds"),
+        holdTimeSeconds: averageField(items, "holdTimeSeconds"),
+        ahtSeconds: averageField(items, "ahtSeconds"),
+        attendancePercentValue: null,
+        qaPercentValue: null,
+        agentCount: new Set(items.map((item) => item.agentName)).size,
+      };
+    })
+    .sort((left, right) => (left.weekDate?.getTime() ?? 0) - (right.weekDate?.getTime() ?? 0));
+}
+
+function getDualRangeDashboardData() {
+  const dualState = getDualDateRangeState();
+  if (!dualState) return null;
+
+  const primaryStart = parseInputDate(dualState.primaryStart);
+  const primaryEnd = parseInputDate(dualState.primaryEnd);
+  const primaryLabel = getSelectedPrimaryRangeLabel();
+  const scopedDailyRecords = getScopedRealtimeDailyRecords();
+  const primaryDailyRecords = filterByDateRange(scopedDailyRecords, primaryStart, primaryEnd)
+    .sort((left, right) => (left.dateAt?.getTime() ?? 0) - (right.dateAt?.getTime() ?? 0));
+  const dashboardRecords = aggregateDualRangeRecords(primaryDailyRecords, primaryLabel);
+  const trendWeeklyAverages = buildDualRangeTrendSeries(primaryDailyRecords);
+  const currentSummary = buildDualRangeSummaryFromRecords(dashboardRecords, primaryLabel);
+
+  const weeklyAverages = [];
+  let compareRecords = [];
+  let compareLabel = "Compare Range";
+  if (dualState.compareEnabled) {
+    const compareStart = parseInputDate(dualState.compareStart);
+    const compareEnd = parseInputDate(dualState.compareEnd);
+    compareLabel = compareStart && compareEnd
+      ? `${compareStart.toLocaleDateString("en-US")} - ${compareEnd.toLocaleDateString("en-US")}`
+      : "Compare Range";
+    const compareDailyRecords = filterByDateRange(scopedDailyRecords, compareStart, compareEnd)
+      .sort((left, right) => (left.dateAt?.getTime() ?? 0) - (right.dateAt?.getTime() ?? 0));
+    compareRecords = aggregateDualRangeRecords(compareDailyRecords, compareLabel);
+    const compareSummary = buildDualRangeSummaryFromRecords(compareRecords, compareLabel);
+    weeklyAverages.push(compareSummary);
+  }
+  weeklyAverages.push(currentSummary);
+
+  const compareByAgent = new Map(compareRecords.map((record) => [record.agentName, record]));
+  const varianceByAgent = dashboardRecords
+    .map((record) => {
+      const compareRecord = compareByAgent.get(record.agentName);
+      const metricKey = state.dashboardFocus === "transfer" ? "transferScore" : "ahtScore";
+      const primaryValue = record?.[metricKey];
+      const compareValue = compareRecord?.[metricKey];
+      if (
+        primaryValue === null ||
+        primaryValue === undefined ||
+        Number.isNaN(primaryValue) ||
+        compareValue === null ||
+        compareValue === undefined ||
+        Number.isNaN(compareValue)
+      ) {
+        return null;
+      }
+      return {
+        agentName: record.agentName,
+        primaryValue,
+        compareValue,
+        delta: Number(primaryValue) - Number(compareValue),
+      };
+    })
+    .filter(Boolean);
+
+  return {
+    dashboardRecords,
+    compareRecords,
+    primaryLabel,
+    compareLabel,
+    varianceByAgent,
+    tableRecords: state.filters.search
+      ? dashboardRecords.filter((record) => `${record.agentName} ${record.weekEnding}`.toLowerCase().includes(state.filters.search.trim().toLowerCase()))
+      : dashboardRecords,
+    weeklyAverages,
+    trendWeeklyAverages,
+  };
 }
 
 function getLatestLastUpdatedDisplay(records) {
@@ -1592,6 +2021,35 @@ function updateSummaryCards(filteredRecords, weeklyAverages) {
       : rawText[cardKey];
     card.delta.innerHTML = buildDeltaMarkup(effectiveCurrent, effectivePrevious);
   });
+
+  if (["transfer", "aht"].includes(state.dashboardFocus)) {
+    const customComparison = getDualDateRangeComparison();
+    const activeCard = cardMap[state.dashboardFocus];
+    const activeRangeState = getDualDateRangeState();
+    if (customComparison && activeCard && activeRangeState) {
+      const currentScore = customComparison.currentMetrics?.score;
+      activeCard.value.textContent = customComparison.currentMetrics?.valueText || "N/A";
+      activeCard.badge.textContent =
+        currentScore === null || currentScore === undefined || Number.isNaN(currentScore) ? "N/A" : Math.round(currentScore);
+      activeCard.badge.className = `score-chip ${scoreClassName(currentScore)}`;
+      activeCard.raw.textContent = customComparison.currentMetrics?.rawText || "No valid records in the selected range.";
+
+      if (!customComparison.compareEnabled) {
+        activeCard.delta.textContent = "";
+      } else if (customComparison.delta === null) {
+        activeCard.delta.innerHTML = '<span class="delta-flat">Flat</span> No compare data in the selected range';
+      } else {
+        const direction = customComparison.delta > 0 ? "up" : customComparison.delta < 0 ? "down" : "flat";
+        const arrow = direction === "up" ? "↑" : direction === "down" ? "↓" : "→";
+        const toneClass = direction === "up" ? "delta-positive" : direction === "down" ? "delta-negative" : "delta-flat";
+        activeCard.delta.innerHTML = customComparison.delta > 0
+          ? `<span class="delta-up">Up</span> ${Math.abs(customComparison.delta).toFixed(2)} vs compare range`
+          : customComparison.delta < 0
+          ? `<span class="delta-down">Down</span> ${Math.abs(customComparison.delta).toFixed(2)} vs compare range`
+          : '<span class="delta-flat">Flat</span> 0.00 vs compare range';
+      }
+    }
+  }
 }
 
 function syncFilterOptions() {
@@ -1625,7 +2083,7 @@ function syncFilterOptions() {
   elements.agentFilter.value = state.filters.agent;
 }
 
-function updateCharts(filteredRecords, weeklyAverages, scopedRecords, trendWeeklyAverages = weeklyAverages) {
+function updateCharts(filteredRecords, weeklyAverages, scopedRecords, trendWeeklyAverages = weeklyAverages, customConfig = null) {
   const weekSummary = pickWeekSummary(filteredRecords, weeklyAverages);
   const chartRecords =
     state.filters.week === "all"
@@ -1638,17 +2096,24 @@ function updateCharts(filteredRecords, weeklyAverages, scopedRecords, trendWeekl
     const selectedWeek = comparisonWeeklyAverages.at(-1)?.weekEnding || (isRealtimeFocus() ? "Selected Date Range" : "Selected Week");
     const previousWeek = comparisonWeeklyAverages.length > 1 ? comparisonWeeklyAverages[0]?.weekEnding : isRealtimeFocus() ? "No previous date range" : `No previous ${getComparisonUnitLabel()}`;
     const qaPending = !hasValidNumber(weekSummary.qaScore);
-    elements.comparisonTitle.textContent = state.dashboardFocus === "all"
-      ? `Selected date range vs previous date range`
-      : `${FOCUS_SCORING[state.dashboardFocus].title} vs previous date range`;
-    elements.comparisonSubnote.textContent =
-      comparisonWeeklyAverages.length > 1
-        ? isRealtimeFocus()
-          ? `${selectedWeek} vs previous date range (${previousWeek}).${qaPending ? " QA is pending and excluded from overall where missing." : ""}`
-          : `${selectedWeek} vs ${previousWeek}.${qaPending ? " QA is pending and excluded from overall where missing." : ""}`
-        : isRealtimeFocus()
-        ? `${selectedWeek} has no previous date range available.${qaPending ? " QA is pending and excluded from overall where missing." : ""}`
-        : `${selectedWeek} has no previous ${getComparisonUnitLabel()} available.${qaPending ? " QA is pending and excluded from overall where missing." : ""}`;
+    if (customConfig?.comparisonMode === "dual-range") {
+      elements.comparisonTitle.textContent = `${FOCUS_SCORING[state.dashboardFocus].title} compare vs primary`;
+      elements.comparisonSubnote.textContent = customConfig.compareLabel
+        ? `${customConfig.compareLabel} versus ${customConfig.primaryLabel}.`
+        : `${customConfig.primaryLabel} has no compare range selected.`;
+    } else {
+      elements.comparisonTitle.textContent = state.dashboardFocus === "all"
+        ? `Selected date range vs previous date range`
+        : `${FOCUS_SCORING[state.dashboardFocus].title} vs previous date range`;
+      elements.comparisonSubnote.textContent =
+        comparisonWeeklyAverages.length > 1
+          ? isRealtimeFocus()
+            ? `${selectedWeek} vs previous date range (${previousWeek}).${qaPending ? " QA is pending and excluded from overall where missing." : ""}`
+            : `${selectedWeek} vs ${previousWeek}.${qaPending ? " QA is pending and excluded from overall where missing." : ""}`
+          : isRealtimeFocus()
+          ? `${selectedWeek} has no previous date range available.${qaPending ? " QA is pending and excluded from overall where missing." : ""}`
+          : `${selectedWeek} has no previous ${getComparisonUnitLabel()} available.${qaPending ? " QA is pending and excluded from overall where missing." : ""}`;
+    }
   }
 
   if (elements.rankingSubnote) {
@@ -1662,7 +2127,14 @@ function updateCharts(filteredRecords, weeklyAverages, scopedRecords, trendWeekl
   state.charts.trend = renderLineChart(elements.trendChart, state.charts.trend, trendWeeklyAverages, state.dashboardFocus);
   state.charts.weekScore = renderBarChart(elements.weekScoreChart, state.charts.weekScore, weekSummary, state.dashboardFocus);
   state.charts.contribution = renderContributionChart(elements.contributionChart, state.charts.contribution, weekSummary);
-  state.charts.variance = renderVarianceChart(elements.varianceChart, state.charts.variance, comparisonWeeklyAverages, state.dashboardFocus);
+  state.charts.variance = customConfig?.comparisonMode === "dual-range"
+    ? renderAgentDeltaVarianceChart(elements.varianceChart, state.charts.variance, customConfig.varianceByAgent, {
+      metricLabel: `${FOCUS_SCORING[state.dashboardFocus].title} delta`,
+      primaryLabel: customConfig.primaryLabel,
+      compareLabel: customConfig.compareLabel,
+      color: state.dashboardFocus === "transfer" ? "#3B82F6" : "#F59E0B",
+    })
+    : renderVarianceChart(elements.varianceChart, state.charts.variance, comparisonWeeklyAverages, state.dashboardFocus);
   state.charts.transferDistribution = renderDistributionChart(
     elements.transferDistributionChart,
     state.charts.transferDistribution,
@@ -1714,12 +2186,25 @@ function updateCharts(filteredRecords, weeklyAverages, scopedRecords, trendWeekl
   );
   renderPerformerSpreadSummary(chartRecords, FOCUS_SCORING[state.dashboardFocus].metricKey);
   state.charts.stacked = renderStackedBarChart(elements.stackedChart, state.charts.stacked, chartRecords, openBreakdownDrilldown, state.dashboardFocus);
-  state.charts.comparison = renderComparisonChart(
-    elements.comparisonChart,
-    state.charts.comparison,
-    comparisonWeeklyAverages,
-    state.dashboardFocus
-  );
+  state.charts.comparison = customConfig?.comparisonMode === "dual-range"
+    ? renderRangeComparisonChart(
+      elements.comparisonChart,
+      state.charts.comparison,
+      {
+        metricLabel: FOCUS_SCORING[state.dashboardFocus].title,
+        primaryLabel: customConfig.primaryLabel,
+        compareLabel: customConfig.compareLabel || "Compare",
+        primaryValue: weeklyAverages.at(-1)?.[FOCUS_SCORING[state.dashboardFocus].metricKey] ?? null,
+        compareValue: weeklyAverages.length > 1 ? weeklyAverages[0]?.[FOCUS_SCORING[state.dashboardFocus].metricKey] ?? null : null,
+        color: state.dashboardFocus === "transfer" ? "#3B82F6" : "#F59E0B",
+      }
+    )
+    : renderComparisonChart(
+      elements.comparisonChart,
+      state.charts.comparison,
+      comparisonWeeklyAverages,
+      state.dashboardFocus
+    );
 }
 
 function handleRowToggle(rowKey) {
@@ -1892,14 +2377,17 @@ function updateLayoutVisibility() {
   const focus = state.dashboardFocus;
   const showCompactSingleKpiCharts = ["transfer", "admits", "aht", "attendance", "qa"].includes(focus);
 
-  if (elements.distributionSection && elements.performersSection && elements.diagnosticsSection) {
-    const distributionHost = showCompactSingleKpiCharts ? elements.performersSection : elements.diagnosticsSection;
+  if (elements.distributionSection && elements.snapshotSection && elements.diagnosticsSection) {
+    const distributionHost = showCompactSingleKpiCharts ? elements.snapshotSection : elements.diagnosticsSection;
     if (elements.distributionSection.parentElement !== distributionHost) {
       distributionHost.appendChild(elements.distributionSection);
     }
   }
   if (elements.agentsSection) {
     elements.agentsSection.classList.toggle("is-hidden", showCompactSingleKpiCharts);
+  }
+  if (elements.varianceCard) {
+    elements.varianceCard.classList.toggle("is-hidden", showCompactSingleKpiCharts);
   }
 
   elements.summaryCards.forEach((card) => {
@@ -1938,7 +2426,7 @@ function updateLayoutVisibility() {
     elements.snapshotSection.classList.toggle("is-hidden", focus === "qa");
   }
   if (elements.performersSection) {
-    elements.performersSection.classList.toggle("is-hidden", focus === "qa");
+    elements.performersSection.classList.toggle("is-hidden", focus === "qa" || showCompactSingleKpiCharts);
   }
   if (elements.deepDiveSection) {
     elements.deepDiveSection.classList.toggle("is-hidden", focus === "attendance" || focus === "qa");
@@ -1949,6 +2437,38 @@ function updateLayoutVisibility() {
 }
 
 function updateDashboard() {
+  if (isDualRangeFocus()) {
+    const dualData = getDualRangeDashboardData();
+    if (!dualData) {
+      updateTable([]);
+      updateStatus([]);
+      updateLayoutVisibility();
+      return;
+    }
+
+    state.distributionDrilldownOpen = false;
+    applyDistributionDrilldownState();
+    updateInsights(dualData.dashboardRecords, dualData.weeklyAverages);
+    updateSummaryCards(dualData.dashboardRecords, dualData.weeklyAverages);
+    updateAgentFocus(dualData.dashboardRecords, dualData.weeklyAverages);
+    updateCharts(
+      dualData.dashboardRecords,
+      dualData.weeklyAverages,
+      dualData.dashboardRecords,
+      dualData.trendWeeklyAverages,
+      {
+        comparisonMode: "dual-range",
+        primaryLabel: dualData.primaryLabel,
+        compareLabel: dualData.compareLabel,
+        varianceByAgent: dualData.varianceByAgent,
+      }
+    );
+    updateTable(dualData.tableRecords);
+    updateStatus(dualData.dashboardRecords);
+    updateLayoutVisibility();
+    return;
+  }
+
   const activeDataset = getActiveDataset();
   const focusRecords = getFocusScopedRecords(activeDataset.records);
   const dashboardRecords = getFilteredRecords(focusRecords, { ...state.filters, search: "" });
@@ -2006,12 +2526,14 @@ function applyDashboardFocus() {
   });
 
   if (elements.monthFilterField && elements.weekFilterField && elements.monthFilterLabel && elements.weekFilterLabel) {
-    elements.monthFilterField.classList.toggle("is-hidden", false);
     elements.weekFilterLabel.textContent = "Date Range";
     elements.monthFilterLabel.textContent = "Month";
   }
   if (elements.topFiltersTitle) {
-    elements.topFiltersTitle.textContent = "Filter by month, date range, and agent";
+    elements.topFiltersTitle.textContent = isDualRangeFocus()
+      ? ""
+      : "Filter by month, date range, and agent";
+    elements.topFiltersTitle.classList.toggle("is-hidden", isDualRangeFocus());
   }
   if (elements.realtimeLastUpdatedPill && elements.realtimeLastUpdatedText) {
     elements.realtimeLastUpdatedPill.hidden = !shouldShowFocusLastUpdated();
@@ -2118,6 +2640,7 @@ function applyDashboardFocus() {
 
   state.mobileDistributionPanel = FOCUS_SCORING[state.dashboardFocus].distribution;
   applyMobileDistributionState();
+  syncDualDateRangeControls();
   updateDashboard();
 }
 
@@ -2345,7 +2868,46 @@ function bindEvents() {
 
   elements.agentFilter.addEventListener("change", (event) => {
     state.filters.agent = event.target.value;
+    if (["transfer", "aht"].includes(state.dashboardFocus)) {
+      const dualState = getDualDateRangeState();
+      if (dualState) {
+        dualState.initialized = false;
+      }
+      syncDualDateRangeControls();
+    }
     updateDashboard();
+  });
+
+  elements.dualRangeAgentFilter?.addEventListener("change", (event) => {
+    state.filters.agent = event.target.value;
+    const dualState = getDualDateRangeState();
+    if (dualState) {
+      dualState.initialized = false;
+      ensureDualDateRangeDefaults(true);
+    }
+    syncDualDateRangeControls();
+    updateDashboard();
+  });
+
+  const handleDualDateRangeChange = () => {
+    const dualState = getDualDateRangeState();
+    if (!dualState) return;
+    dualState.primaryStart = elements.primaryDateStart?.value || "";
+    dualState.primaryEnd = elements.primaryDateEnd?.value || "";
+    dualState.compareEnabled = Boolean(elements.compareDateToggle?.checked);
+    dualState.compareStart = elements.compareDateStart?.value || "";
+    dualState.compareEnd = elements.compareDateEnd?.value || "";
+    syncDualDateRangeControls();
+    updateDashboard();
+  };
+
+  elements.primaryDateStart?.addEventListener("change", handleDualDateRangeChange);
+  elements.primaryDateEnd?.addEventListener("change", handleDualDateRangeChange);
+  elements.compareDateToggle?.addEventListener("change", handleDualDateRangeChange);
+  elements.compareDateStart?.addEventListener("change", handleDualDateRangeChange);
+  elements.compareDateEnd?.addEventListener("change", handleDualDateRangeChange);
+  elements.dualRangeReset?.addEventListener("click", () => {
+    resetDashboardFilters();
   });
 
   elements.tableSearch.addEventListener("input", (event) => {

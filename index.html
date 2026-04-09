@@ -166,10 +166,6 @@
               <span id="authUserEmail">--</span>
               <button id="googleLogout" class="auth-logout-button" type="button">Sign Out</button>
             </div>
-            <div class="meta-pill">
-              <span class="meta-label">Data Source</span>
-              <span>Google Sheets CSV</span>
-            </div>
             <div class="meta-pill" id="realtimeLastUpdatedPill" hidden>
               <span class="meta-label">Last Updated</span>
               <span id="realtimeLastUpdatedText">--</span>
@@ -306,6 +302,10 @@
                 <p class="eyebrow">Quick Filters</p>
                 <h3 id="topFiltersTitle">Filter by month, date range, and agent</h3>
               </div>
+              <label class="dual-date-range-toggle is-hidden" id="compareRangeHeaderToggle" for="compareDateToggle">
+                <input id="compareDateToggle" type="checkbox" />
+                <span>Compare range</span>
+              </label>
             </div>
             <div class="top-filters-mobile-toggle">
               <button id="filtersCollapseToggle" class="table-collapse-button" type="button" aria-expanded="false" aria-controls="filtersContentArea">
@@ -313,6 +313,36 @@
               </button>
             </div>
             <div class="filters-content-area" id="filtersContentArea">
+              <div class="dual-date-range-card is-hidden" id="dualDateRangeSection">
+                <div class="dual-date-range-grid">
+                  <label>
+                    <span>Primary Start</span>
+                    <input id="primaryDateStart" type="date" />
+                  </label>
+                  <label>
+                    <span>Primary End</span>
+                    <input id="primaryDateEnd" type="date" />
+                  </label>
+                  <label>
+                    <span>Agent</span>
+                    <select id="dualRangeAgentFilter"></select>
+                  </label>
+                  <div class="top-filter-action dual-range-reset-wrap">
+                    <button id="dualRangeReset" class="primary-button top-reset-button" type="button">
+                      Reset Filters
+                    </button>
+                  </div>
+                  <label class="compare-date-field is-hidden" id="compareDateStartField">
+                    <span>Compare Start</span>
+                    <input id="compareDateStart" type="date" />
+                  </label>
+                  <label class="compare-date-field is-hidden" id="compareDateEndField">
+                    <span>Compare End</span>
+                    <input id="compareDateEnd" type="date" />
+                  </label>
+                </div>
+              </div>
+
               <div class="top-filters-grid">
                 <label id="monthFilterField">
                   <span id="monthFilterLabel">Month</span>

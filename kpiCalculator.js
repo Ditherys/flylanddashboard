@@ -33,6 +33,28 @@ function parseTimestamp(value) {
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 
+function parseSourceDate(value) {
+  if (!value) return null;
+  const trimmed = String(value).trim();
+  if (!trimmed) return null;
+
+  const direct = new Date(trimmed);
+  if (!Number.isNaN(direct.getTime())) {
+    return new Date(direct.getFullYear(), direct.getMonth(), direct.getDate());
+  }
+
+  const parts = trimmed.split(/[/-]/).map((part) => Number(part));
+  if (parts.length === 3 && parts.every((part) => Number.isFinite(part))) {
+    const [first, second, third] = parts;
+    const parsed = first > 31
+      ? new Date(first, second - 1, third)
+      : new Date(third, first - 1, second);
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  }
+
+  return null;
+}
+
 function formatLastUpdatedDisplay(rawValue, parsedValue = null) {
   const trimmed = String(rawValue ?? "").trim();
   if (trimmed) return `${trimmed} EST`;
@@ -349,6 +371,94 @@ function aggregateRealtimeRows(rows, primaryKeyLookup) {
   }));
 }
 
+function aggregateRealtimeDailyRows(rows, primaryKeyLookup) {
+  const registry = new Map();
+
+  rows.forEach((row) => {
+    const dateAt = parseSourceDate(row.date);
+    const person = resolvePerson(primaryKeyLookup, row.email, row.agentName);
+    const aggregateIdentity = normalizeEmail(person.email) || person.identity || normalizeDisplayName(row.agentName);
+    if (!dateAt || !aggregateIdentity) return;
+
+    const dateKey = `${dateAt.getFullYear()}-${String(dateAt.getMonth() + 1).padStart(2, "0")}-${String(dateAt.getDate()).padStart(2, "0")}`;
+    const key = `${dateKey}__${aggregateIdentity}`;
+    const existing = registry.get(key) || {
+      ...row,
+      date: row.date || dateKey,
+      dateAt,
+      dateRange: row.dateRange || "",
+      agentName: person.displayName || normalizeDisplayName(row.agentName),
+      email: person.email || normalizeEmail(row.email),
+      firstTimeCallerTotal: 0,
+      transferCountTotal: 0,
+      inboundCallsTotal: 0,
+      inboundMinutesTotalSeconds: 0,
+      holdTimeTotalSeconds: 0,
+      lastUpdatedAt: null,
+      lastUpdated: "",
+    };
+
+    existing.firstTimeCallerTotal += safeNumber(row.firstTimeCaller) || 0;
+    existing.transferCountTotal += safeNumber(row.transferCount) || 0;
+    existing.inboundCallsTotal += safeNumber(row.inboundCalls) || 0;
+    existing.inboundMinutesTotalSeconds += secondsFromDuration(row.inboundMinutes);
+    existing.holdTimeTotalSeconds += secondsFromDuration(row.holdTime);
+
+    const parsedLastUpdated = parseTimestamp(row.lastUpdated);
+    if (
+      parsedLastUpdated instanceof Date &&
+      !Number.isNaN(parsedLastUpdated.getTime()) &&
+      (!existing.lastUpdatedAt || parsedLastUpdated.getTime() >= existing.lastUpdatedAt.getTime())
+    ) {
+      existing.lastUpdatedAt = parsedLastUpdated;
+      existing.lastUpdated = row.lastUpdated || existing.lastUpdated;
+    }
+
+    registry.set(key, existing);
+  });
+
+  return [...registry.values()].map((row) => {
+    const firstTimeCaller = row.firstTimeCallerTotal || 0;
+    const transferCount = row.transferCountTotal || 0;
+    const inboundCalls = row.inboundCallsTotal || 0;
+    const inboundMinutesSeconds = row.inboundMinutesTotalSeconds || 0;
+    const holdTimeSeconds = row.holdTimeTotalSeconds || 0;
+      const transferRate = calculateTransferRate(
+        transferCount === null || transferCount === undefined ? null : transferCount,
+        firstTimeCaller === null || firstTimeCaller === undefined ? null : firstTimeCaller
+      );
+    const ahtSeconds = inboundCalls > 0 ? (inboundMinutesSeconds + holdTimeSeconds) / inboundCalls : null;
+
+    return {
+      key: `${normalizeEmail(row.email) || row.agentName}__${row.date}`,
+      identity: normalizeEmail(row.email) || row.agentName,
+      email: normalizeEmail(row.email),
+      agentName: row.agentName,
+      date: row.date,
+      dateAt: row.dateAt,
+      dateRange: row.dateRange || "",
+      monthLabel: titleCaseMonth(row.dateAt),
+      firstTimeCaller,
+      transferCount,
+      inboundCalls,
+      inboundMinutesSeconds,
+      inboundMinutes: formatDurationFromSeconds(inboundMinutesSeconds),
+      holdTimeSeconds,
+      holdTime: formatDurationFromSeconds(holdTimeSeconds),
+      transferRate,
+      transferRatePercent: transferRate === null ? null : transferRate * 100,
+      transferRateDisplay: formatPercent(transferRate === null ? null : transferRate * 100),
+      transferScore: calculateTransferScore(transferRate),
+      ahtSeconds,
+      ahtDisplay: formatAHT(ahtSeconds),
+      ahtScore: calculateAHTScore(ahtSeconds),
+      lastUpdated: row.lastUpdated || "",
+      lastUpdatedAt: row.lastUpdatedAt,
+      lastUpdatedDisplay: formatLastUpdatedDisplay(row.lastUpdated, row.lastUpdatedAt),
+    };
+  });
+}
+
 function mergeRows(rows, registry, sourceName, primaryKeyLookup) {
   rows.forEach((row) => {
     const weekEnding = String(row.dateRange || row.date || row.weekEnding || "").trim();
@@ -538,6 +648,12 @@ export function buildKpiDataset(rawDatasets) {
 export function buildRealtimeDataset(rawDatasets) {
   const primaryKeyLookup = buildPrimaryKeyLookup(rawDatasets.primaryKey || []);
   const aggregatedRealtimeRows = aggregateRealtimeRows(rawDatasets.realtime || [], primaryKeyLookup);
+  const dailyRecords = aggregateRealtimeDailyRows(rawDatasets.realtime || [], primaryKeyLookup)
+    .sort((left, right) => {
+      const leftTime = left.dateAt?.getTime() ?? 0;
+      const rightTime = right.dateAt?.getTime() ?? 0;
+      return leftTime - rightTime || left.agentName.localeCompare(right.agentName);
+    });
   const records = aggregatedRealtimeRows
     .map((row) => {
       const dateValue = String(row.dateRange || row.date || "").trim();
@@ -665,6 +781,7 @@ export function buildRealtimeDataset(rawDatasets) {
 
   return {
     records,
+    dailyRecords,
     weeklyAverages,
     monthOptions: [...new Set(records.map((record) => record.monthLabel))],
     weekOptions: [...new Set(records.map((record) => record.weekEnding))],
